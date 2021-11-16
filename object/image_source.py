@@ -2,6 +2,7 @@ import argparse
 import os
 import os.path as osp
 import random
+import sys
 
 import numpy as np
 import torch
@@ -11,11 +12,15 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from tqdm import tqdm
 
 import loss
 import network
 from data_list import ImageList
 from loss import CrossEntropyLabelSmooth
+from transfg import train
+from transfg.models.modeling import CONFIGS
+from transfg.train import count_parameters
 from transfg.utils import data_utils
 
 
@@ -122,6 +127,40 @@ def data_load(args):
 
     return dset_loaders
 
+def setup(args):
+    # Prepare model
+    config = CONFIGS[args.model_type]
+    config.split = args.split
+    config.slide_step = args.slide_step
+
+    if args.dataset == "CUB_200_2011":
+        num_classes = 200
+    elif args.dataset == "car":
+        num_classes = 196
+    elif args.dataset == "nabirds":
+        num_classes = 555
+    elif args.dataset == "dog":
+        num_classes = 120
+    elif args.dataset == "INat2017":
+        num_classes = 5089
+    elif args.dataset == 'RarePlanes':
+        num_classes = 7
+
+    model = network.VisionTransformer(config, args.img_size, zero_head=True, num_classes=num_classes,
+                                      smoothing_value=args.smoothing_value)
+
+    model.load_from(np.load(args.pretrained_dir))
+    if args.pretrained_model is not None:
+        pretrained_model = torch.load(args.pretrained_model)['model']
+        model.load_state_dict(pretrained_model)
+    model.to(args.device)
+    num_params = count_parameters(model)
+
+    print("{}".format(config))
+    print("Training parameters %s", args)
+    print("Total Parameter: \t%2.1fM" % num_params)
+    return args, model
+
 
 def cal_acc(loader, netF, netB, netC, flag=False):
     start_test = True
@@ -214,6 +253,9 @@ def train_source(args):
         netF = network.ResBase(res_name=args.net).cuda()
     elif args.net[0:3] == 'vgg':
         netF = network.VGGBase(vgg_name=args.net).cuda()
+    elif args.net[0:3] == 'tra':
+        args.device = torch.device('cuda')
+        args, netF = setup(args)
 
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features,
                                    bottleneck_dim=args.bottleneck).cuda()
@@ -232,8 +274,9 @@ def train_source(args):
 
     acc_init = 0
     max_iter = args.max_epoch * len(dset_loaders["source_tr"])
-    interval_iter = max_iter // 10
+    interval_iter = 100
     iter_num = 0
+    epoch_num = 0
 
     netF.train()
     netB.train()
@@ -241,10 +284,13 @@ def train_source(args):
 
     while iter_num < max_iter:
         try:
-            inputs_source, labels_source = iter_source.next()
+            inputs_source, labels_source = next(iter_source)
         except:
-            iter_source = iter(dset_loaders["source_tr"])
-            inputs_source, labels_source = iter_source.next()
+            print('Starting Epoch Number %d' % epoch_num)
+            epoch_num += 1
+            tqdm_iter = tqdm(dset_loaders["source_tr"], file=sys.stdout)
+            iter_source = iter(tqdm_iter)
+            inputs_source, labels_source = next(iter_source)
 
         if inputs_source.size(0) == 1:
             continue
@@ -272,6 +318,7 @@ def train_source(args):
             else:
                 acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, False)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te)
+                tqdm_iter.set_description(log_str)
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
             print(log_str + '\n')
@@ -351,7 +398,7 @@ if __name__ == "__main__":
     parser.add_argument('--dset', type=str, default='office-home',
                         choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth'])
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
-    parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101")
+    parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101, transfg")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
     parser.add_argument('--bottleneck', type=int, default=256)
     parser.add_argument('--epsilon', type=float, default=1e-5)
@@ -363,7 +410,26 @@ if __name__ == "__main__":
     parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
     parser.add_argument('--dset_root', type=str, default=None, help='Path to the target dataset.  Directory should '
                                                                     'contain folder for different domains')
+
+    parser.add_argument("--model_type", choices=["ViT-B_16", "ViT-B_32", "ViT-L_16",
+                                                 "ViT-L_32", "ViT-H_14"],
+                        default="ViT-B_16",
+                        help="Which variant to use.")
+    parser.add_argument("--img_size", default=448, type=int,
+                        help="Resolution size")
+    parser.add_argument('--smoothing_value', type=float, default=0.0,
+                        help="Label smoothing value\n")
+    parser.add_argument('--split', type=str, default='non-overlap',
+                        help="Split method")
+    parser.add_argument('--slide_step', type=int, default=12,
+                        help="Slide step for overlap split")
+    parser.add_argument("--pretrained_dir", type=str, default="/opt/tiger/minist/ViT-B_16.npz",
+                        help="Where to search for pretrained ViT models.")
+    parser.add_argument("--pretrained_model", type=str, default=None,
+                        help="load pretrained model")
+
     args = parser.parse_args()
+    args.workers = args.worker
 
     names = []
     if args.dset == 'office-home':
