@@ -119,7 +119,7 @@ class MNIST(VisionDataset):
     @property
     def processed_folder(self):
         return os.path.join(self.root, 'processed')
-        
+
     @property
     def class_to_idx(self):
         return {_class: i for i, _class in enumerate(self.classes)}
@@ -164,7 +164,6 @@ class MNIST(VisionDataset):
 
     def extra_repr(self):
         return "Split: {}".format("Train" if self.train is True else "Test")
-
 
 
 class MNIST_idx(VisionDataset):
@@ -219,7 +218,7 @@ class MNIST_idx(VisionDataset):
     def __init__(self, root, train=True, transform=None, target_transform=None,
                  download=False):
         super(MNIST_idx, self).__init__(root, transform=transform,
-                                    target_transform=target_transform)
+                                        target_transform=target_transform)
         self.train = train  # training set or test set
 
         if download:
@@ -321,6 +320,7 @@ class MNIST_idx(VisionDataset):
     def extra_repr(self):
         return "Split: {}".format("Train" if self.train is True else "Test")
 
+
 def get_int(b):
     return int(codecs.encode(b, 'hex'), 16)
 
@@ -338,6 +338,7 @@ def open_maybe_compressed_file(path):
         import lzma
         return lzma.open(path, 'rb')
     return open(path, 'rb')
+
 
 def read_sn3_pascalvincent_tensor(path, strict=True):
     """Read a SN3 file in "Pascal Vincent" format (Lush file 'libidx/idx-io.lsh').
@@ -371,13 +372,14 @@ def read_sn3_pascalvincent_tensor(path, strict=True):
 def read_label_file(path):
     with open(path, 'rb') as f:
         x = read_sn3_pascalvincent_tensor(f, strict=False)
-    assert(x.dtype == torch.uint8)
-    assert(x.ndimension() == 1)
+    assert (x.dtype == torch.uint8)
+    assert (x.ndimension() == 1)
     return x.long()
+
 
 def read_image_file(path):
     with open(path, 'rb') as f:
         x = read_sn3_pascalvincent_tensor(f, strict=False)
-    assert(x.dtype == torch.uint8)
-    assert(x.ndimension() == 3)
+    assert (x.dtype == torch.uint8)
+    assert (x.ndimension() == 3)
     return x

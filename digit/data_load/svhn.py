@@ -115,6 +115,7 @@ class SVHN(VisionDataset):
     def extra_repr(self):
         return "Split: {split}".format(**self.__dict__)
 
+
 class SVHN_idx(VisionDataset):
     """`SVHN <http://ufldl.stanford.edu/housenumbers/>`_ Dataset.
     Note: The SVHN dataset assigns the label `10` to the digit `0`. However, in this Dataset,
@@ -151,7 +152,7 @@ class SVHN_idx(VisionDataset):
     def __init__(self, root, split='train', transform=None, target_transform=None,
                  download=False):
         super(SVHN_idx, self).__init__(root, transform=transform,
-                                   target_transform=target_transform)
+                                       target_transform=target_transform)
         self.split = verify_str_arg(split, "split", tuple(self.split_list.keys()))
         self.url = self.split_list[split][0]
         self.filename = self.split_list[split][1]

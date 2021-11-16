@@ -6,7 +6,8 @@ def Entropy(input_):
     bs = input_.size(0)
     entropy = -input_ * torch.log(input_ + 1e-5)
     entropy = torch.sum(entropy, dim=1)
-    return entropy 
+    return entropy
+
 
 class CrossEntropyLabelSmooth(nn.Module):
     def __init__(self, num_classes, epsilon=0.1, use_gpu=True, size_average=True):

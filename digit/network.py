@@ -14,6 +14,7 @@ def init_weights(m):
         nn.init.xavier_normal_(m.weight)
         nn.init.zeros_(m.bias)
 
+
 class feat_bootleneck(nn.Module):
     def __init__(self, feature_dim, bottleneck_dim=256, type="ori"):
         super(feat_bootleneck, self).__init__()
@@ -30,6 +31,7 @@ class feat_bootleneck(nn.Module):
             x = self.dropout(x)
         return x
 
+
 class feat_classifier(nn.Module):
     def __init__(self, class_num, bottleneck_dim=256, type="linear"):
         super(feat_classifier, self).__init__()
@@ -43,43 +45,45 @@ class feat_classifier(nn.Module):
         x = self.fc(x)
         return x
 
+
 class DTNBase(nn.Module):
     def __init__(self):
         super(DTNBase, self).__init__()
         self.conv_params = nn.Sequential(
-                nn.Conv2d(3, 64, kernel_size=5, stride=2, padding=2),
-                nn.BatchNorm2d(64),
-                nn.Dropout2d(0.1),
-                nn.ReLU(),
-                nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2),
-                nn.BatchNorm2d(128),
-                nn.Dropout2d(0.3),
-                nn.ReLU(),
-                nn.Conv2d(128, 256, kernel_size=5, stride=2, padding=2),
-                nn.BatchNorm2d(256),
-                nn.Dropout2d(0.5),
-                nn.ReLU()
-                )   
-        self.in_features = 256*4*4
+            nn.Conv2d(3, 64, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm2d(64),
+            nn.Dropout2d(0.1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm2d(128),
+            nn.Dropout2d(0.3),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm2d(256),
+            nn.Dropout2d(0.5),
+            nn.ReLU()
+        )
+        self.in_features = 256 * 4 * 4
 
     def forward(self, x):
         x = self.conv_params(x)
         x = x.view(x.size(0), -1)
         return x
 
+
 class LeNetBase(nn.Module):
     def __init__(self):
         super(LeNetBase, self).__init__()
         self.conv_params = nn.Sequential(
-                nn.Conv2d(1, 20, kernel_size=5),
-                nn.MaxPool2d(2),
-                nn.ReLU(),
-                nn.Conv2d(20, 50, kernel_size=5),
-                nn.Dropout2d(p=0.5),
-                nn.MaxPool2d(2),
-                nn.ReLU(),
-                )
-        self.in_features = 50*4*4
+            nn.Conv2d(1, 20, kernel_size=5),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            nn.Conv2d(20, 50, kernel_size=5),
+            nn.Dropout2d(p=0.5),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+        )
+        self.in_features = 50 * 4 * 4
 
     def forward(self, x):
         x = self.conv_params(x)

@@ -62,7 +62,7 @@ def download_url(url, root, filename=None, md5=None):
     # check if file is already present locally
     if check_integrity(fpath, md5):
         print('Using downloaded and verified file: ' + fpath)
-    else:   # download the file
+    else:  # download the file
         try:
             print('Downloading ' + url + ' to ' + fpath)
             urllib.request.urlretrieve(
