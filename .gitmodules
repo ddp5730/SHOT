@@ -1,0 +1,3 @@
+[submodule "transfg"]
+	path = transfg
+	url = git@github.com:ddp5730/TransFG.git
