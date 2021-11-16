@@ -1,19 +1,20 @@
 import argparse
-import os, sys
+import os
 import os.path as osp
-import torchvision
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms
-import network, loss
-from torch.utils.data import DataLoader
-from data_list import ImageList, ImageList_idx
-import random, pdb, math, copy
-from tqdm import tqdm
 from scipy.spatial.distance import cdist
 from sklearn.metrics import confusion_matrix
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+import loss
+import network
+from data_list import ImageList_idx
 
 
 def op_copy(optimizer):

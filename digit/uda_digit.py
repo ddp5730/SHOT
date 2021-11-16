@@ -1,19 +1,20 @@
 import argparse
-import os, sys
+import os
 import os.path as osp
-import torchvision
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms
-import network, loss
-from torch.utils.data import DataLoader
-import random, pdb, math, copy
-from tqdm import tqdm
 from scipy.spatial.distance import cdist
-import pickle
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+import loss
+import network
 from data_load import mnist, svhn, usps
+
 
 def op_copy(optimizer):
     for param_group in optimizer.param_groups:

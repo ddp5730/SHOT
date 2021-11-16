@@ -1,9 +1,11 @@
-from .vision import VisionDataset
-from PIL import Image
 import os
 import os.path
+
 import numpy as np
+from PIL import Image
+
 from .utils import download_url, check_integrity, verify_str_arg
+from .vision import VisionDataset
 
 
 class SVHN(VisionDataset):

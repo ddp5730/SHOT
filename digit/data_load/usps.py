@@ -7,13 +7,10 @@ import gzip
 import os
 import pickle
 import urllib
-from PIL import Image
 
 import numpy as np
-import torch
 import torch.utils.data as data
-from torch.utils.data.sampler import WeightedRandomSampler
-from torchvision import datasets, transforms
+from PIL import Image
 
 
 class USPS(data.Dataset):

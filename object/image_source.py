@@ -1,21 +1,22 @@
 import argparse
-import os, sys
+import os
 import os.path as osp
-import torchvision
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms
-import network, loss
-from torch.utils.data import DataLoader
-from data_list import ImageList
-import random, pdb, math, copy
-from tqdm import tqdm
-from loss import CrossEntropyLabelSmooth
-from scipy.spatial.distance import cdist
-from sklearn.metrics import confusion_matrix
 from sklearn.cluster import KMeans
+from sklearn.metrics import confusion_matrix
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+import loss
+import network
+from data_list import ImageList
+from loss import CrossEntropyLabelSmooth
+
 
 def op_copy(optimizer):
     for param_group in optimizer.param_groups:
@@ -314,7 +315,7 @@ if __name__ == "__main__":
     parser.add_argument('--max_epoch', type=int, default=20, help="max iterations")
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
-    parser.add_argument('--dset', type=str, default='office-home', choices=['VISDA-C', 'office', 'office-home', 'office-caltech'])
+    parser.add_argument('--dset', type=str, default='office-home', choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth'])
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
@@ -326,8 +327,11 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default='san')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda', 'oda'])
     parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
+    parser.add_argument('--dset_root', type=str, default=None, help='Path to the target dataset.  Directory should '
+                                                                    'contain folder for different domains')
     args = parser.parse_args()
 
+    names = []
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
         args.class_num = 65 
@@ -340,6 +344,9 @@ if __name__ == "__main__":
     if args.dset == 'office-caltech':
         names = ['amazon', 'caltech', 'dslr', 'webcam']
         args.class_num = 10
+    if args.dset == 'rareplanes-synth':
+        names = ['real', 'synth']
+        args.class_num = 3
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -349,9 +356,14 @@ if __name__ == "__main__":
     random.seed(SEED)
     # torch.backends.cudnn.deterministic = True
 
-    folder = './data/'
-    args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
-    args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'     
+    if args.dset_root is None:
+        folder = './data/'
+        args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
+        args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+    else:
+        args.s_dset_path = os.path.join(args.dset_root, names[args.s])
+        args.test_dset_path = os.path.join(args.dset_root, names[args.t])
+
 
     if args.dset == 'office-home':
         if args.da == 'pda':
