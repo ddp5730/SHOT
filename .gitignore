@@ -1,2 +1,5 @@
 .idea
 output/
+logs/
+
+*/__pycache__/

@@ -11,6 +11,7 @@ import torch.optim as optim
 from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -278,6 +279,8 @@ def train_source(args):
     iter_num = 0
     epoch_num = 0
 
+    writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
+
     netF.train()
     netB.train()
     netC.train()
@@ -307,6 +310,9 @@ def train_source(args):
         classifier_loss.backward()
         optimizer.step()
 
+        writer.add_scalar('Loss/Train', classifier_loss.item(), global_step=iter_num)
+        writer.add_scalar('LR', optimizer.param_groups[0]['lr'], global_step=iter_num)
+
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             netF.eval()
             netB.eval()
@@ -319,9 +325,10 @@ def train_source(args):
                 acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, False)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te)
                 tqdm_iter.set_description(log_str)
+                writer.add_scalar('Validation Accuracy', scalar_value=acc_s_te, global_step=iter_num)
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
-            print(log_str + '\n')
+            # print(log_str + '\n')
 
             if acc_s_te >= acc_init:
                 acc_init = acc_s_te
@@ -427,6 +434,8 @@ if __name__ == "__main__":
                         help="Where to search for pretrained ViT models.")
     parser.add_argument("--pretrained_model", type=str, default=None,
                         help="load pretrained model")
+    parser.add_argument('--name', type=str, default='test',
+                        help='Unique name for the run')
 
     args = parser.parse_args()
     args.workers = args.worker
@@ -474,7 +483,7 @@ if __name__ == "__main__":
             args.src_classes = [i for i in range(25)]
             args.tar_classes = [i for i in range(65)]
 
-    args.output_dir_src = osp.join(args.output, args.da, args.dset, names[args.s][0].upper())
+    args.output_dir_src = osp.join(args.output, args.name, names[args.s][0].upper())
     args.name_src = names[args.s][0].upper()
     if not osp.exists(args.output_dir_src):
         os.system('mkdir -p ' + args.output_dir_src)
