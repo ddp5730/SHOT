@@ -16,6 +16,7 @@ import loss
 import network
 from data_list import ImageList
 from loss import CrossEntropyLabelSmooth
+from transfg.utils import data_utils
 
 
 def op_copy(optimizer):
@@ -194,7 +195,20 @@ def cal_acc_oda(loader, netF, netB, netC):
 
 
 def train_source(args):
-    dset_loaders = data_load(args)
+    if args.dset == 'rareplanes-synth':
+        args.dataset = 'RarePlanes'
+        args.data_root = args.s_dset_path
+        args.local_rank = -1
+        args.train_batch_size = args.batch_size
+        args.eval_batch_size = args.batch_size
+        args.balance_classes = True
+        dset_loaders = {}
+        dset_loaders["source_tr"], dset_loaders["source_te"] = data_utils.get_loader(args, use_validation=True)
+
+        args.data_root = args.test_dset_path
+        _, dset_loaders["test"] = data_utils.get_loader(args)
+    else:
+        dset_loaders = data_load(args)
     ## set base network
     if args.net[0:3] == 'res':
         netF = network.ResBase(res_name=args.net).cuda()
