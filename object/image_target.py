@@ -2,6 +2,7 @@ import argparse
 import os
 import os.path as osp
 import random
+import sys
 
 import numpy as np
 import torch
@@ -10,7 +11,9 @@ import torch.optim as optim
 from scipy.spatial.distance import cdist
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
+from tqdm import tqdm
 
 import loss
 import network
@@ -136,16 +139,14 @@ def cal_acc(loader, netF, netB, netC, flag=False):
 def train_target(args):
     if args.dset == 'rareplanes-synth':
         args.dataset = 'RarePlanes'
-        args.data_root = args.s_dset_path
         args.local_rank = -1
         args.train_batch_size = args.batch_size
         args.eval_batch_size = args.batch_size
         args.balance_classes = True
         dset_loaders = {}
-        dset_loaders["source_tr"], dset_loaders["source_te"] = data_utils.get_loader(args, use_validation=True)
 
         args.data_root = args.test_dset_path
-        _, dset_loaders["test"] = data_utils.get_loader(args)
+        dset_loaders['target'], dset_loaders['test'] = data_utils.get_loader(args, index_dataset=True)
     else:
         dset_loaders = data_load(args)
     ## set base network
@@ -187,15 +188,23 @@ def train_target(args):
     optimizer = op_copy(optimizer)
 
     max_iter = args.max_epoch * len(dset_loaders["target"])
-    interval_iter = max_iter // args.interval
+    # interval_iter = max_iter // args.interval
+    interval_iter = 250
     iter_num = 0
+    epoch_num = 0
+    acc_init = 0
+
+    writer = SummaryWriter(log_dir=os.path.join("logs", args.name + '_DA'))
 
     while iter_num < max_iter:
         try:
-            inputs_test, _, tar_idx = iter_test.next()
+            inputs_test, _, tar_idx = next(iter_test)
         except:
-            iter_test = iter(dset_loaders["target"])
-            inputs_test, _, tar_idx = iter_test.next()
+            print('Starting Epoch Number %d' % epoch_num)
+            epoch_num += 1
+            tqdm_iter = tqdm(dset_loaders['target'], file=sys.stdout)
+            iter_test = iter(tqdm_iter)
+            inputs_test, _, tar_idx = next(iter_test)
 
         if inputs_test.size(0) == 1:
             continue
@@ -203,7 +212,7 @@ def train_target(args):
         if iter_num % interval_iter == 0 and args.cls_par > 0:
             netF.eval()
             netB.eval()
-            mem_label = obtain_label(dset_loaders['test'], netF, netB, netC, args)
+            mem_label = obtain_label(dset_loaders['target'], netF, netB, netC, args)
             mem_label = torch.from_numpy(mem_label).cuda()
             netF.train()
             netB.train()
@@ -217,6 +226,9 @@ def train_target(args):
         outputs_test = netC(features_test)
 
         if args.cls_par > 0:
+            max = torch.max(tar_idx).item()
+            if max >= 10612:
+                print(max)
             pred = mem_label[tar_idx]
             classifier_loss = nn.CrossEntropyLoss()(outputs_test, pred)
             classifier_loss *= args.cls_par
@@ -239,6 +251,9 @@ def train_target(args):
         classifier_loss.backward()
         optimizer.step()
 
+        writer.add_scalar('Loss/Train', classifier_loss.item(), global_step=iter_num)
+        writer.add_scalar('LR', optimizer.param_groups[0]['lr'], global_step=iter_num)
+
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             netF.eval()
             netB.eval()
@@ -249,17 +264,29 @@ def train_target(args):
             else:
                 acc_s_te, _ = cal_acc(dset_loaders['test'], netF, netB, netC, False)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_str, iter_num, max_iter, acc_s_te)
+                tqdm_iter.set_description(log_str)
+                writer.add_scalar('Validation Accuracy', scalar_value=acc_s_te, global_step=iter_num)
 
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
             print(log_str + '\n')
+
+            if acc_s_te >= acc_init:
+                acc_init = acc_s_te
+                best_netF = netF.state_dict()
+                best_netB = netB.state_dict()
+                best_netC = netC.state_dict()
+                torch.save(best_netF, osp.join(args.output_dir, "target_F_" + args.savename + ".pt"))
+                torch.save(best_netB, osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
+                torch.save(best_netC, osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
+
             netF.train()
             netB.train()
 
     if args.issave:
-        torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F_" + args.savename + ".pt"))
-        torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
-        torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
+        torch.save(best_netF, osp.join(args.output_dir, "target_F_" + args.savename + ".pt"))
+        torch.save(best_netB, osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
+        torch.save(best_netC, osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
 
     return netF, netB, netC
 
@@ -419,6 +446,8 @@ if __name__ == "__main__":
         if i == args.s:
             continue
         args.t = i
+
+        print('Training on target: %s' % names[i])
 
         if args.dset_root is None:
             folder = './data/'
