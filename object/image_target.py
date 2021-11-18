@@ -15,6 +15,8 @@ from torchvision import transforms
 import loss
 import network
 from data_list import ImageList_idx
+from object.image_source import setup
+from transfg.utils import data_utils
 
 
 def op_copy(optimizer):
@@ -132,12 +134,28 @@ def cal_acc(loader, netF, netB, netC, flag=False):
 
 
 def train_target(args):
-    dset_loaders = data_load(args)
+    if args.dset == 'rareplanes-synth':
+        args.dataset = 'RarePlanes'
+        args.data_root = args.s_dset_path
+        args.local_rank = -1
+        args.train_batch_size = args.batch_size
+        args.eval_batch_size = args.batch_size
+        args.balance_classes = True
+        dset_loaders = {}
+        dset_loaders["source_tr"], dset_loaders["source_te"] = data_utils.get_loader(args, use_validation=True)
+
+        args.data_root = args.test_dset_path
+        _, dset_loaders["test"] = data_utils.get_loader(args)
+    else:
+        dset_loaders = data_load(args)
     ## set base network
     if args.net[0:3] == 'res':
         netF = network.ResBase(res_name=args.net).cuda()
     elif args.net[0:3] == 'vgg':
         netF = network.VGGBase(vgg_name=args.net).cuda()
+    elif args.net[0:3] == 'tra':
+        args.device = torch.device('cuda')
+        args, netF = setup(args)
 
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features,
                                    bottleneck_dim=args.bottleneck).cuda()
@@ -226,11 +244,11 @@ def train_target(args):
             netB.eval()
             if args.dset == 'VISDA-C':
                 acc_s_te, acc_list = cal_acc(dset_loaders['test'], netF, netB, netC, True)
-                log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name, iter_num, max_iter,
+                log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_str, iter_num, max_iter,
                                                                             acc_s_te) + '\n' + acc_list
             else:
                 acc_s_te, _ = cal_acc(dset_loaders['test'], netF, netB, netC, False)
-                log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name, iter_num, max_iter, acc_s_te)
+                log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_str, iter_num, max_iter, acc_s_te)
 
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
@@ -326,15 +344,15 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth'])
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
-    parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101")
+    parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101, transfg")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
 
     parser.add_argument('--gent', type=bool, default=True)
     parser.add_argument('--ent', type=bool, default=True)
     parser.add_argument('--threshold', type=int, default=0)
-    parser.add_argument('--cls_par', type=float, default=0.3)
+    parser.add_argument('--cls_par', type=float, default=0.3)  # TODO: What is CLS Par???
     parser.add_argument('--ent_par', type=float, default=1.0)
     parser.add_argument('--lr_decay1', type=float, default=0.1)
     parser.add_argument('--lr_decay2', type=float, default=1.0)
@@ -348,7 +366,30 @@ if __name__ == "__main__":
     parser.add_argument('--output_src', type=str, default='san')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda'])
     parser.add_argument('--issave', type=bool, default=True)
+
+    parser.add_argument("--model_type", choices=["ViT-B_16", "ViT-B_32", "ViT-L_16",
+                                                 "ViT-L_32", "ViT-H_14"],
+                        default="ViT-B_16",
+                        help="Which variant to use.")
+    parser.add_argument("--img_size", default=448, type=int,
+                        help="Resolution size")
+    parser.add_argument('--smoothing_value', type=float, default=0.0,
+                        help="Label smoothing value\n")
+    parser.add_argument('--split', type=str, default='non-overlap',
+                        help="Split method")
+    parser.add_argument('--slide_step', type=int, default=12,
+                        help="Slide step for overlap split")
+    parser.add_argument("--pretrained_dir", type=str, default="/opt/tiger/minist/ViT-B_16.npz",
+                        help="Where to search for pretrained ViT models.")
+    parser.add_argument("--pretrained_model", type=str, default=None,
+                        help="load pretrained model")
+    parser.add_argument('--name', type=str, default='test',
+                        help='Unique name for the run')
+    parser.add_argument('--dset_root', type=str, default=None, help='Path to the target dataset.  Directory should '
+                                                                    'contain folder for different domains')
+
     args = parser.parse_args()
+    args.workers = args.worker
 
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
@@ -362,6 +403,9 @@ if __name__ == "__main__":
     if args.dset == 'office-caltech':
         names = ['amazon', 'caltech', 'dslr', 'webcam']
         args.class_num = 10
+    if args.dset == 'rareplanes-synth':
+        names = ['real', 'synth']
+        args.class_num = 3
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -376,10 +420,14 @@ if __name__ == "__main__":
             continue
         args.t = i
 
-        folder = './data/'
-        args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
-        args.t_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
-        args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+        if args.dset_root is None:
+            folder = './data/'
+            args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
+            args.t_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+            args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+        else:
+            args.s_dset_path = os.path.join(args.dset_root, names[args.s])
+            args.test_dset_path = os.path.join(args.dset_root, names[args.t])
 
         if args.dset == 'office-home':
             if args.da == 'pda':
@@ -387,9 +435,10 @@ if __name__ == "__main__":
                 args.src_classes = [i for i in range(65)]
                 args.tar_classes = [i for i in range(25)]
 
-        args.output_dir_src = osp.join(args.output_src, args.da, args.dset, names[args.s][0].upper())
-        args.output_dir = osp.join(args.output, args.da, args.dset, names[args.s][0].upper() + names[args.t][0].upper())
-        args.name = names[args.s][0].upper() + names[args.t][0].upper()
+        args.output_dir_src = osp.join(args.output_src, args.name, names[args.s][0].upper())
+        args.output_dir = osp.join(args.output, args.name, names[args.t][0].upper())
+
+        args.name_str = names[args.s][0].upper() + names[args.t][0].upper()
 
         if not osp.exists(args.output_dir):
             os.system('mkdir -p ' + args.output_dir)
