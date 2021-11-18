@@ -62,7 +62,7 @@ def test_target(args):
         args.eval_batch_size = args.batch_size
         args.balance_classes = True
         dset_loaders = {}
-        dset_loaders["source_tr"], dset_loaders["source_te"] = data_utils.get_loader(args, use_validation=True)
+        dset_loaders["source_tr"], dset_loaders["source_te"] = data_utils.get_loader(args, use_validation=False)
 
         args.data_root = args.test_dset_path
         _, dset_loaders["test"] = data_utils.get_loader(args)
@@ -105,7 +105,7 @@ def test_target(args):
             args.name = orig_name + '_target'
             log_str = 'Validation on Target Domain'
             print(log_str)
-            args.out_file.write(log_str)
+            args.out_file.write(log_str + '\n')
             args.out_file.flush()
             acc = cal_acc(dset_loaders['test'], netF, netB, netC, False)
             log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc)
@@ -115,17 +115,13 @@ def test_target(args):
             args.name = orig_name + '_source'
             log_str = '---------------------------------------------------------------\nValidation on Source Domain'
             print(log_str)
-            args.out_file.write(log_str)
+            args.out_file.write(log_str + '\n')
             args.out_file.flush()
             acc = cal_acc(dset_loaders['source_te'], netF, netB, netC, False)
             log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc)
             print(log_str)
             print('------------------------------------------------------------------\n')
             args.name = orig_name
-
-    args.out_file.write(log_str)
-    args.out_file.flush()
-    print(log_str)
 
 def cal_acc(loader, netF, netB, netC, flag=False):
     start_test = True
