@@ -275,7 +275,7 @@ def train_source(args):
 
     acc_init = 0
     max_iter = args.max_epoch * len(dset_loaders["source_tr"])
-    interval_iter = 100
+    interval_iter = 500
     iter_num = 0
     epoch_num = 0
 
@@ -335,6 +335,9 @@ def train_source(args):
                 best_netF = netF.state_dict()
                 best_netB = netB.state_dict()
                 best_netC = netC.state_dict()
+                torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
+                torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
+                torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
 
             netF.train()
             netB.train()
@@ -495,25 +498,25 @@ if __name__ == "__main__":
     args.out_file.flush()
     train_source(args)
 
-    args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
-    for i in range(len(names)):
-        if i == args.s:
-            continue
-        args.t = i
-        args.name = names[args.s][0].upper() + names[args.t][0].upper()
-
-        folder = '/Checkpoint/liangjian/tran/data/'
-        args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
-        args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
-
-        if args.dset == 'office-home':
-            if args.da == 'pda':
-                args.class_num = 65
-                args.src_classes = [i for i in range(65)]
-                args.tar_classes = [i for i in range(25)]
-            if args.da == 'oda':
-                args.class_num = 25
-                args.src_classes = [i for i in range(25)]
-                args.tar_classes = [i for i in range(65)]
-
-        test_target(args)
+    # args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
+    # for i in range(len(names)):
+    #     if i == args.s:
+    #         continue
+    #     args.t = i
+    #     args.name = names[args.s][0].upper() + names[args.t][0].upper()
+    #
+    #     folder = '/Checkpoint/liangjian/tran/data/'
+    #     args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
+    #     args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+    #
+    #     if args.dset == 'office-home':
+    #         if args.da == 'pda':
+    #             args.class_num = 65
+    #             args.src_classes = [i for i in range(65)]
+    #             args.tar_classes = [i for i in range(25)]
+    #         if args.da == 'oda':
+    #             args.class_num = 25
+    #             args.src_classes = [i for i in range(25)]
+    #             args.tar_classes = [i for i in range(65)]
+    #
+    #     test_target(args)
