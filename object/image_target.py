@@ -212,6 +212,8 @@ def train_target(args):
         if iter_num % interval_iter == 0 and args.cls_par > 0:
             netF.eval()
             netB.eval()
+
+            # TODO: Bug, but only returns num labels equal to some multiple of batch size.
             mem_label = obtain_label(dset_loaders['target'], netF, netB, netC, args)
             mem_label = torch.from_numpy(mem_label).cuda()
             netF.train()
@@ -379,7 +381,7 @@ if __name__ == "__main__":
     parser.add_argument('--gent', type=bool, default=True)
     parser.add_argument('--ent', type=bool, default=True)
     parser.add_argument('--threshold', type=int, default=0)
-    parser.add_argument('--cls_par', type=float, default=0.3)  # TODO: What is CLS Par???
+    parser.add_argument('--cls_par', type=float, default=0.3)  # TODO: What is CLS Par???  classifier_loss param?
     parser.add_argument('--ent_par', type=float, default=1.0)
     parser.add_argument('--lr_decay1', type=float, default=0.1)
     parser.add_argument('--lr_decay2', type=float, default=1.0)
@@ -414,6 +416,8 @@ if __name__ == "__main__":
                         help='Unique name for the run')
     parser.add_argument('--dset_root', type=str, default=None, help='Path to the target dataset.  Directory should '
                                                                     'contain folder for different domains')
+    parser.add_argument('--output_dir_src', type=str, default=None,
+                        help='Source Directory to draw models from')
 
     args = parser.parse_args()
     args.workers = args.worker
@@ -464,7 +468,7 @@ if __name__ == "__main__":
                 args.src_classes = [i for i in range(65)]
                 args.tar_classes = [i for i in range(25)]
 
-        args.output_dir_src = osp.join(args.output_src, args.name, names[args.s][0].upper())
+        # args.output_dir_src = osp.join(args.output_src, args.name, names[args.s][0].upper())
         args.output_dir = osp.join(args.output, args.name, names[args.t][0].upper())
 
         args.name_str = names[args.s][0].upper() + names[args.t][0].upper()
