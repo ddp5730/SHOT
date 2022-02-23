@@ -188,8 +188,8 @@ def train_target(args):
     optimizer = op_copy(optimizer)
 
     max_iter = args.max_epoch * len(dset_loaders["target"])
-    # interval_iter = max_iter // args.interval
-    interval_iter = 250
+    interval_iter = max_iter // args.interval
+    # interval_iter = 250
     iter_num = 0
     epoch_num = 0
     acc_init = 0

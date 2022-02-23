@@ -81,11 +81,11 @@ def test_target(args):
                                    bottleneck_dim=args.bottleneck).cuda()
     netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
 
-    args.modelpath = args.output_dir_src + '/source_F.pt'
+    args.modelpath = args.output_dir_src + '/target_F_par_0.3.pt'
     netF.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_B.pt'
+    args.modelpath = args.output_dir_src + '/target_B_par_0.3.pt'
     netB.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_C.pt'
+    args.modelpath = args.output_dir_src + '/target_C_par_0.3.pt'
     netC.load_state_dict(torch.load(args.modelpath))
     netF.eval()
     netB.eval()
@@ -202,6 +202,8 @@ if __name__ == "__main__":
                         help="load pretrained model")
     parser.add_argument('--name', type=str, default='test',
                         help='Unique name for the run')
+    parser.add_argument('--output_dir_src', type=str, default=None,
+                        help='Source Directory to draw models from')
 
     args = parser.parse_args()
     args.workers = args.worker
@@ -249,7 +251,8 @@ if __name__ == "__main__":
             args.src_classes = [i for i in range(25)]
             args.tar_classes = [i for i in range(65)]
 
-    args.output_dir_src = osp.join(args.output, args.name, names[args.s][0].upper())
+    if args.output_dir_src is None:
+        args.output_dir_src = osp.join(args.output, args.name, names[args.s][0].upper())
     args.name_src = names[args.s][0].upper()
     if not osp.exists(args.output_dir_src):
         os.system('mkdir -p ' + args.output_dir_src)
