@@ -1,11 +1,6 @@
-import math
 import numpy as np
-import torch
 import torch.nn as nn
 import torch.nn.utils.weight_norm as weightNorm
-import torchvision
-from collections import OrderedDict
-from torch.autograd import Variable
 from torchvision import models
 
 

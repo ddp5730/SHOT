@@ -1,22 +1,16 @@
 import argparse
-import copy
-import math
-import numpy as np
 import os
 import os.path as osp
-import pdb
 import random
-import sys
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
 from scipy.spatial.distance import cdist
-from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from tqdm import tqdm
 
 import loss
 import network

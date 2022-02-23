@@ -2,7 +2,8 @@ scripts/
 output/
 .idea/
 logs/
+configs/
 
 transfg/
 
-*/__pycache__/
+__pycache__/

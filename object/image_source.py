@@ -1,27 +1,24 @@
 import argparse
-import copy
-import math
-import numpy as np
 import os
 import os.path as osp
-import pdb
 import random
-import sys
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
-from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from tqdm import tqdm
+from torchvision.transforms import Normalize
 
 import loss
 import network
 from data_list import ImageList
 from loss import CrossEntropyLabelSmooth
+from swin.config import get_config
+from swin.data import build_loader
 
 
 def op_copy(optimizer):
@@ -60,7 +57,7 @@ def image_test(resize_size=256, crop_size=224, alexnet=False):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
     else:
-        normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
+        normalize = transforms.Normalize(meanfile='./ilsvrc_2012_mean.npy')
     return transforms.Compose([
         transforms.Resize((resize_size, resize_size)),
         transforms.CenterCrop(crop_size),
@@ -200,12 +197,18 @@ def cal_acc_oda(loader, netF, netB, netC):
 
 
 def train_source(args):
-    dset_loaders = data_load(args)
+    if args.dset == 'rareplanes-synth':
+        dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
+    else:
+        dset_loaders = data_load(args)
+
     ## set base network
     if args.net[0:3] == 'res':
         netF = network.ResBase(res_name=args.net).cuda()
     elif args.net[0:3] == 'vgg':
         netF = network.VGGBase(vgg_name=args.net).cuda()
+    elif args.net == 'swin-b':
+        netF =
 
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features,
                                    bottleneck_dim=args.bottleneck).cuda()
@@ -341,9 +344,9 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth'])
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
-    parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101")
+    parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101, swin-b")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
     parser.add_argument('--bottleneck', type=int, default=256)
     parser.add_argument('--epsilon', type=float, default=1e-5)
@@ -353,7 +356,41 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default='san')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda', 'oda'])
     parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
+
+    parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
+    parser.add_argument('--pretrained',
+                        help='pretrained weight from checkpoint, could be imagenet22k pretrained weight')
+    parser.add_argument('--data-path', type=str, help='path to dataset')
+    parser.add_argument('--transfer-dataset', action='store_true', help='Transfer the model to a new dataset')
+    parser.add_argument('--name', type=str, default='test',
+                        help='Unique name for the run')
+
+    # Args needed to load swin.  Not necessarily used
+    parser.add_argument(
+        "--opts",
+        help="Modify config options by adding 'KEY VALUE' pairs. ",
+        default=None,
+        nargs='+',
+    )
+    parser.add_argument('--zip', action='store_true', help='use zipped dataset instead of folder dataset')
+    parser.add_argument('--cache-mode', type=str, default='part', choices=['no', 'full', 'part'],
+                        help='no: no cache, '
+                             'full: cache all data, '
+                             'part: sharding the dataset into nonoverlapping pieces and only cache one piece')
+    parser.add_argument('--resume', help='resume from checkpoint')
+    parser.add_argument('--accumulation-steps', type=int, help="gradient accumulation steps")
+    parser.add_argument('--use-checkpoint', action='store_true',
+                        help="whether to use gradient checkpointing to save memory")
+    parser.add_argument('--amp-opt-level', type=str, default='O1', choices=['O0', 'O1', 'O2'],
+                        help='mixed precision opt level, if O0, no amp is used')
+    parser.add_argument('--tag', help='tag of experiment')
+    parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
+    parser.add_argument('--throughput', action='store_true', help='Test throughput only')
+    parser.add_argument("--local_rank", type=int, default=0, help='local rank for DistributedDataParallel')
+
     args = parser.parse_args()
+
+    config = get_config(args)
 
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
@@ -367,6 +404,9 @@ if __name__ == "__main__":
     if args.dset == 'office-caltech':
         names = ['amazon', 'caltech', 'dslr', 'webcam']
         args.class_num = 10
+    if args.dset == 'rareplanes-synth':
+        names = ['train', 'validation']
+        args.class_num = config.MODEL.NUM_CLASSES
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -376,42 +416,14 @@ if __name__ == "__main__":
     random.seed(SEED)
     # torch.backends.cudnn.deterministic = True
 
-    folder = './data/'
-    args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
-    args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
-
-    if args.dset == 'office-home':
-        if args.da == 'pda':
-            args.class_num = 65
-            args.src_classes = [i for i in range(65)]
-            args.tar_classes = [i for i in range(25)]
-        if args.da == 'oda':
-            args.class_num = 25
-            args.src_classes = [i for i in range(25)]
-            args.tar_classes = [i for i in range(65)]
-
-    args.output_dir_src = osp.join(args.output, args.da, args.dset, names[args.s][0].upper())
-    args.name_src = names[args.s][0].upper()
-    if not osp.exists(args.output_dir_src):
-        os.system('mkdir -p ' + args.output_dir_src)
-    if not osp.exists(args.output_dir_src):
-        os.mkdir(args.output_dir_src)
-
-    args.out_file = open(osp.join(args.output_dir_src, 'log.txt'), 'w')
-    args.out_file.write(print_args(args) + '\n')
-    args.out_file.flush()
-    train_source(args)
-
-    args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
-    for i in range(len(names)):
-        if i == args.s:
-            continue
-        args.t = i
-        args.name = names[args.s][0].upper() + names[args.t][0].upper()
-
-        folder = '/Checkpoint/liangjian/tran/data/'
-        args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
-        args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+    if args.dset != 'rareplanes-synth':
+        if args.dset_root is None:
+            folder = './data/'
+            args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
+            args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+        else:
+            args.s_dset_path = os.path.join(args.dset_root, names[args.s])
+            args.test_dset_path = os.path.join(args.dset_root, names[args.t])
 
         if args.dset == 'office-home':
             if args.da == 'pda':
@@ -423,4 +435,37 @@ if __name__ == "__main__":
                 args.src_classes = [i for i in range(25)]
                 args.tar_classes = [i for i in range(65)]
 
-        test_target(args)
+    args.output_dir_src = osp.join(args.output, args.name, names[args.s][0].upper())
+    args.name_src = names[args.s][0].upper()
+    if not osp.exists(args.output_dir_src):
+        os.system('mkdir -p ' + args.output_dir_src)
+    if not osp.exists(args.output_dir_src):
+        os.mkdir(args.output_dir_src)
+
+    args.out_file = open(osp.join(args.output_dir_src, 'log.txt'), 'w')
+    args.out_file.write(print_args(args) + '\n')
+    args.out_file.flush()
+    train_source(args)
+
+    # args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
+    # for i in range(len(names)):
+    #     if i == args.s:
+    #         continue
+    #     args.t = i
+    #     args.name = names[args.s][0].upper() + names[args.t][0].upper()
+    #
+    #     folder = '/Checkpoint/liangjian/tran/data/'
+    #     args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
+    #     args.test_dset_path = folder + args.dset + '/' + names[args.t] + '_list.txt'
+    #
+    #     if args.dset == 'office-home':
+    #         if args.da == 'pda':
+    #             args.class_num = 65
+    #             args.src_classes = [i for i in range(65)]
+    #             args.tar_classes = [i for i in range(25)]
+    #         if args.da == 'oda':
+    #             args.class_num = 25
+    #             args.src_classes = [i for i in range(25)]
+    #             args.tar_classes = [i for i in range(65)]
+    #
+    #     test_target(args)

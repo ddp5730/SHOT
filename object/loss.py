@@ -1,10 +1,6 @@
-import math
 import numpy as np
-import pdb
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
 
 
 def Entropy(input_):
