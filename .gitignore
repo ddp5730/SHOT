@@ -1,0 +1,8 @@
+scripts/
+output/
+.idea/
+logs/
+
+transfg/
+
+*/__pycache__/

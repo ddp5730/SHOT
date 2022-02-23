@@ -1,25 +1,33 @@
 import argparse
-import os, sys
-import os.path as osp
-import torchvision
+import copy
+import math
 import numpy as np
+import os
+import os.path as osp
+import pdb
+import random
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms
-import network, loss
-from torch.utils.data import DataLoader
-from data_list import ImageList, ImageList_idx
-import random, pdb, math, copy
-from tqdm import tqdm
+import torchvision
 from scipy.spatial.distance import cdist
-from sklearn.metrics import confusion_matrix
 from sklearn.cluster import KMeans
+from sklearn.metrics import confusion_matrix
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from tqdm import tqdm
+
+import loss
+import network
+from data_list import ImageList, ImageList_idx
+
 
 def op_copy(optimizer):
     for param_group in optimizer.param_groups:
         param_group['lr0'] = param_group['lr']
     return optimizer
+
 
 def lr_scheduler(optimizer, iter_num, max_iter, gamma=10, power=0.75):
     decay = (1 + gamma * iter_num / max_iter) ** (-power)
@@ -30,13 +38,14 @@ def lr_scheduler(optimizer, iter_num, max_iter, gamma=10, power=0.75):
         param_group['nesterov'] = True
     return optimizer
 
+
 def image_train(resize_size=256, crop_size=224, alexnet=False):
-  if not alexnet:
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                   std=[0.229, 0.224, 0.225])
-  else:
-    normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
-  return  transforms.Compose([
+    if not alexnet:
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+    else:
+        normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
+    return transforms.Compose([
         transforms.Resize((resize_size, resize_size)),
         transforms.RandomCrop(crop_size),
         transforms.RandomHorizontalFlip(),
@@ -44,20 +53,22 @@ def image_train(resize_size=256, crop_size=224, alexnet=False):
         normalize
     ])
 
+
 def image_test(resize_size=256, crop_size=224, alexnet=False):
-  if not alexnet:
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                   std=[0.229, 0.224, 0.225])
-  else:
-    normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
-  return  transforms.Compose([
+    if not alexnet:
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+    else:
+        normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
+    return transforms.Compose([
         transforms.Resize((resize_size, resize_size)),
         transforms.CenterCrop(crop_size),
         transforms.ToTensor(),
         normalize
     ])
 
-def data_load(args): 
+
+def data_load(args):
     ## prepare data
     dsets = {}
     dset_loaders = {}
@@ -77,20 +88,23 @@ def data_load(args):
             reci = rec.strip().split(' ')
             if int(reci[1]) in args.tar_classes:
                 if int(reci[1]) in args.src_classes:
-                    line = reci[0] + ' ' + str(label_map_s[int(reci[1])]) + '\n'   
+                    line = reci[0] + ' ' + str(label_map_s[int(reci[1])]) + '\n'
                     new_tar.append(line)
                 else:
-                    line = reci[0] + ' ' + str(len(label_map_s)) + '\n'   
+                    line = reci[0] + ' ' + str(len(label_map_s)) + '\n'
                     new_tar.append(line)
         txt_tar = new_tar.copy()
         txt_test = txt_tar.copy()
 
     dsets["target"] = ImageList_idx(txt_tar, transform=image_train())
-    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers=args.worker, drop_last=False)
+    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers=args.worker,
+                                        drop_last=False)
     dsets["test"] = ImageList(txt_test, transform=image_test())
-    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs*3, shuffle=False, num_workers=args.worker, drop_last=False)
+    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs * 3, shuffle=False, num_workers=args.worker,
+                                      drop_last=False)
 
     return dset_loaders
+
 
 def cal_acc(loader, netF, netB, netC, flag=False, threshold=0.1):
     start_test = True
@@ -118,23 +132,24 @@ def cal_acc(loader, netF, netB, netC, flag=False, threshold=0.1):
         ent = torch.sum(-all_output * torch.log(all_output + args.epsilon), dim=1) / np.log(args.class_num)
 
         from sklearn.cluster import KMeans
-        kmeans = KMeans(2, random_state=0).fit(ent.reshape(-1,1))
-        labels = kmeans.predict(ent.reshape(-1,1))
+        kmeans = KMeans(2, random_state=0).fit(ent.reshape(-1, 1))
+        labels = kmeans.predict(ent.reshape(-1, 1))
 
-        idx = np.where(labels==1)[0]
+        idx = np.where(labels == 1)[0]
         iidx = 0
         if ent[idx].mean() > ent.mean():
             iidx = 1
-        predict[np.where(labels==iidx)[0]] = args.class_num
+        predict[np.where(labels == iidx)[0]] = args.class_num
 
         matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
-        matrix = matrix[np.unique(all_label).astype(int),:]
+        matrix = matrix[np.unique(all_label).astype(int), :]
 
-        acc = matrix.diagonal()/matrix.sum(axis=1) * 100
+        acc = matrix.diagonal() / matrix.sum(axis=1) * 100
         unknown_acc = acc[-1:].item()
         return np.mean(acc[:-1]), np.mean(acc), unknown_acc
     else:
-        return accuracy*100, mean_ent
+        return accuracy * 100, mean_ent
+
 
 def print_args(args):
     s = "==========================================\n"
@@ -142,22 +157,24 @@ def print_args(args):
         s += "{}:{}\n".format(arg, content)
     return s
 
+
 def train_target(args):
     dset_loaders = data_load(args)
     ## set base network
     if args.net[0:3] == 'res':
         netF = network.ResBase(res_name=args.net).cuda()
     elif args.net[0:3] == 'vgg':
-        netF = network.VGGBase(vgg_name=args.net).cuda()  
+        netF = network.VGGBase(vgg_name=args.net).cuda()
 
-    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).cuda()
-    netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).cuda()
+    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features,
+                                   bottleneck_dim=args.bottleneck).cuda()
+    netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
 
-    args.modelpath = args.output_dir_src + '/source_F.pt'   
+    args.modelpath = args.output_dir_src + '/source_F.pt'
     netF.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_B.pt'   
+    args.modelpath = args.output_dir_src + '/source_B.pt'
     netB.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_C.pt'    
+    args.modelpath = args.output_dir_src + '/source_C.pt'
     netC.load_state_dict(torch.load(args.modelpath))
     netC.eval()
     for k, v in netC.named_parameters():
@@ -243,20 +260,23 @@ def train_target(args):
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             netF.eval()
             netB.eval()
-            acc_os1, acc_os2, acc_unknown = cal_acc(dset_loaders['test'], netF, netB, netC, True, ENT_THRESHOLD)            
-            log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}% / {:.2f}% / {:.2f}%'.format(args.name, iter_num, max_iter, acc_os2, acc_os1, acc_unknown)
+            acc_os1, acc_os2, acc_unknown = cal_acc(dset_loaders['test'], netF, netB, netC, True, ENT_THRESHOLD)
+            log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}% / {:.2f}% / {:.2f}%'.format(args.name, iter_num,
+                                                                                            max_iter, acc_os2, acc_os1,
+                                                                                            acc_unknown)
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
-            print(log_str+'\n')
+            print(log_str + '\n')
             netF.train()
             netB.train()
-    
-    if args.issave:   
+
+    if args.issave:
         torch.save(netF.state_dict(), osp.join(args.output_dir, "target_F_" + args.savename + ".pt"))
         torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
         torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
 
     return netF, netB, netC
+
 
 def obtain_label(loader, netF, netB, netC, args):
     start_test = True
@@ -290,17 +310,17 @@ def obtain_label(loader, netF, netB, netC, args):
     ent = ent.float().cpu()
 
     from sklearn.cluster import KMeans
-    kmeans = KMeans(2, random_state=0).fit(ent.reshape(-1,1))
-    labels = kmeans.predict(ent.reshape(-1,1))
+    kmeans = KMeans(2, random_state=0).fit(ent.reshape(-1, 1))
+    labels = kmeans.predict(ent.reshape(-1, 1))
 
-    idx = np.where(labels==1)[0]
+    idx = np.where(labels == 1)[0]
     iidx = 0
     if ent[idx].mean() > ent.mean():
         iidx = 1
     known_idx = np.where(kmeans.labels_ != iidx)[0]
 
-    all_fea = all_fea[known_idx,:]
-    all_output = all_output[known_idx,:]
+    all_fea = all_fea[known_idx, :]
+    all_output = all_output[known_idx, :]
     predict = predict[known_idx]
     all_label_idx = all_label[known_idx]
     ENT_THRESHOLD = (kmeans.cluster_centers_).mean()
@@ -309,9 +329,9 @@ def obtain_label(loader, netF, netB, netC, args):
     K = all_output.size(1)
     aff = all_output.float().cpu().numpy()
     initc = aff.transpose().dot(all_fea)
-    initc = initc / (1e-8 + aff.sum(axis=0)[:,None])
+    initc = initc / (1e-8 + aff.sum(axis=0)[:, None])
     cls_count = np.eye(K)[predict].sum(axis=0)
-    labelset = np.where(cls_count>args.threshold)
+    labelset = np.where(cls_count > args.threshold)
     labelset = labelset[0]
 
     dd = cdist(all_fea, initc[labelset], args.distance)
@@ -321,7 +341,7 @@ def obtain_label(loader, netF, netB, netC, args):
     for round in range(1):
         aff = np.eye(K)[pred_label]
         initc = aff.transpose().dot(all_fea)
-        initc = initc / (1e-8 + aff.sum(axis=0)[:,None])
+        initc = initc / (1e-8 + aff.sum(axis=0)[:, None])
         dd = cdist(all_fea, initc[labelset], args.distance)
         pred_label = dd.argmin(axis=1)
         pred_label = labelset[pred_label]
@@ -330,7 +350,7 @@ def obtain_label(loader, netF, netB, netC, args):
     guess_label[known_idx] = pred_label
 
     acc = np.sum(guess_label == all_label.float().numpy()) / len(all_label_idx)
-    log_str = 'Threshold = {:.2f}, Accuracy = {:.2f}% -> {:.2f}%'.format(ENT_THRESHOLD, accuracy*100, acc*100)
+    log_str = 'Threshold = {:.2f}, Accuracy = {:.2f}% -> {:.2f}%'.format(ENT_THRESHOLD, accuracy * 100, acc * 100)
 
     return guess_label.astype('int'), ENT_THRESHOLD
 
@@ -348,7 +368,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
- 
+
     parser.add_argument('--gent', type=bool, default=True)
     parser.add_argument('--ent', type=bool, default=True)
     parser.add_argument('--threshold', type=int, default=0)
@@ -361,17 +381,17 @@ if __name__ == "__main__":
     parser.add_argument('--epsilon', type=float, default=1e-5)
     parser.add_argument('--layer', type=str, default="wn", choices=["linear", "wn"])
     parser.add_argument('--classifier', type=str, default="bn", choices=["ori", "bn"])
-    parser.add_argument('--distance', type=str, default='cosine', choices=["euclidean", "cosine"])  
+    parser.add_argument('--distance', type=str, default='cosine', choices=["euclidean", "cosine"])
     parser.add_argument('--output', type=str, default='san')
     parser.add_argument('--output_src', type=str, default='san')
     parser.add_argument('--da', type=str, default='oda', choices=['oda'])
     parser.add_argument('--issave', type=bool, default=True)
     args = parser.parse_args()
-       
+
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
-        args.class_num = 65 
-        
+        args.class_num = 65
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
     torch.manual_seed(SEED)
@@ -397,8 +417,8 @@ if __name__ == "__main__":
                 args.tar_classes = [i for i in range(65)]
 
         args.output_dir_src = osp.join(args.output_src, args.da, args.dset, names[args.s][0].upper())
-        args.output_dir = osp.join(args.output, args.da, args.dset, names[args.s][0].upper()+names[args.t][0].upper())
-        args.name = names[args.s][0].upper()+names[args.t][0].upper()
+        args.output_dir = osp.join(args.output, args.da, args.dset, names[args.s][0].upper() + names[args.t][0].upper())
+        args.name = names[args.s][0].upper() + names[args.t][0].upper()
 
         if not osp.exists(args.output_dir):
             os.system('mkdir -p ' + args.output_dir)
@@ -407,6 +427,6 @@ if __name__ == "__main__":
 
         args.savename = 'par_' + str(args.cls_par)
         args.out_file = open(osp.join(args.output_dir, 'log_' + args.savename + '.txt'), 'w')
-        args.out_file.write(print_args(args)+'\n')
+        args.out_file.write(print_args(args) + '\n')
         args.out_file.flush()
         train_target(args)
