@@ -19,6 +19,12 @@ from data_list import ImageList
 from loss import CrossEntropyLabelSmooth
 from swin.config import get_config
 from swin.data import build_loader
+from swin.logger import create_logger
+from swin.main import validate
+from swin.models import build_model
+from swin.utils import load_pretrained
+
+import torch.distributed as dist
 
 
 def op_copy(optimizer):
@@ -196,7 +202,9 @@ def cal_acc_oda(loader, netF, netB, netC):
     # return np.mean(acc), np.mean(acc[:-1])
 
 
-def train_source(args):
+def train_source(args, config):
+    logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
+
     if args.dset == 'rareplanes-synth':
         dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
     else:
@@ -208,9 +216,15 @@ def train_source(args):
     elif args.net[0:3] == 'vgg':
         netF = network.VGGBase(vgg_name=args.net).cuda()
     elif args.net == 'swin-b':
-        netF =
+        netF = build_model(config)  # If config.MODEL.SOURCE_NUM_CLASSES == 0 then classification head is an identity layer
+        num_features = netF.num_features
 
-    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features,
+        # Load pretrained weights
+        if config.MODEL.PRETRAINED and (not config.MODEL.RESUME):
+            load_pretrained(config, netF, logger)
+        netF.head = nn.Identity()  # Ignore classification head
+
+    netB = network.feat_bootleneck(type=args.classifier, feature_dim=num_features,
                                    bottleneck_dim=args.bottleneck).cuda()
     netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
 
@@ -276,6 +290,9 @@ def train_source(args):
                 best_netF = netF.state_dict()
                 best_netB = netB.state_dict()
                 best_netC = netC.state_dict()
+                torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
+                torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
+                torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
 
             netF.train()
             netB.train()
@@ -338,8 +355,8 @@ def print_args(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='SHOT')
     parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
-    parser.add_argument('--s', type=int, default=0, help="source")
-    parser.add_argument('--t', type=int, default=1, help="target")
+    parser.add_argument('--source', type=int, default=0, help="source")
+    parser.add_argument('--target', type=int, default=1, help="target")
     parser.add_argument('--max_epoch', type=int, default=20, help="max iterations")
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
@@ -392,6 +409,8 @@ if __name__ == "__main__":
 
     config = get_config(args)
 
+    torch.distributed.init_process_group(backend='nccl', init_method='env://', rank=args.local_rank)
+
     if args.dset == 'office-home':
         names = ['Art', 'Clipart', 'Product', 'RealWorld']
         args.class_num = 65
@@ -435,8 +454,8 @@ if __name__ == "__main__":
                 args.src_classes = [i for i in range(25)]
                 args.tar_classes = [i for i in range(65)]
 
-    args.output_dir_src = osp.join(args.output, args.name, names[args.s][0].upper())
-    args.name_src = names[args.s][0].upper()
+    args.output_dir_src = osp.join(args.output, args.name, names[args.source][0].upper())
+    args.name_src = names[args.source][0].upper()
     if not osp.exists(args.output_dir_src):
         os.system('mkdir -p ' + args.output_dir_src)
     if not osp.exists(args.output_dir_src):
@@ -445,7 +464,7 @@ if __name__ == "__main__":
     args.out_file = open(osp.join(args.output_dir_src, 'log.txt'), 'w')
     args.out_file.write(print_args(args) + '\n')
     args.out_file.flush()
-    train_source(args)
+    train_source(args, config)
 
     # args.out_file = open(osp.join(args.output_dir_src, 'log_test.txt'), 'w')
     # for i in range(len(names)):
