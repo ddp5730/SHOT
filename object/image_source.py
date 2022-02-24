@@ -214,7 +214,14 @@ def train_source(args, config):
         dset_loaders["source_tr"] = data_loader_train
         dset_loaders["source_te"] = data_loader_val
 
-        # TODO: Want to use target dataset to select the best model
+        # TODO: Dynamically select target dataset
+        # Validating on target dataset so no longer as unsupervised
+        config.defrost()
+        config.DATA.DATASET = 'rareplanes-real'
+        config.DATA.DATA_PATH = '/home/poppfd/data/RarePlanesCrop/chipped/real'
+        config.freeze()
+        dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
+        data_loader_target_val = data_loader_val
 
     else:
         dset_loaders = data_load(args)
@@ -239,7 +246,7 @@ def train_source(args, config):
     netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
 
     param_group = []
-    learning_rate = args.lr
+    learning_rate = config.TRAIN.BASE_LR
     for k, v in netF.named_parameters():
         param_group += [{'params': v, 'lr': learning_rate * 0.1}]
     for k, v in netB.named_parameters():
@@ -249,9 +256,11 @@ def train_source(args, config):
     optimizer = optim.SGD(param_group)
     optimizer = op_copy(optimizer)
 
-    acc_init = 0
+    acc_t_best = 0
+    acc_s_best = 0
     max_iter = config.TRAIN.EPOCHS * len(dset_loaders["source_tr"])
     interval_iter = max_iter // 10
+    # interval_iter = 10
     iter_num = 0
     epoch_num = 0
 
@@ -299,15 +308,17 @@ def train_source(args, config):
                                                                             acc_s_te) + '\n' + acc_list
             else:
                 acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, False)
-                log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te)
+                acc_t_te, _ = cal_acc(data_loader_target_val, netF, netB, netC, False)
+                log_str = 'Task: {}, Iter:{}/{}; Acc_S = {:.2f}%; Acc_T = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te, acc_t_te)
                 tqdm_iter.set_description(log_str)
-                writer.add_scalar('Validation Accuracy', scalar_value=acc_s_te, global_step=iter_num)
-            args.out_file.write(log_str + '\n')
-            args.out_file.flush()
+                writer.add_scalar('Source Validation Accuracy', scalar_value=acc_s_te, global_step=iter_num)
+                writer.add_scalar('Target Validation Accuracy', scalar_value=acc_t_te, global_step=iter_num)
+            logger.info(log_str + '\n')
             # print(log_str + '\n')
 
-            if acc_s_te >= acc_init:
-                acc_init = acc_s_te
+            if acc_t_te >= acc_t_best:
+                acc_t_best = acc_t_te
+                acc_s_best = acc_s_te
                 best_netF = netF.state_dict()
                 best_netB = netB.state_dict()
                 best_netC = netC.state_dict()
@@ -318,6 +329,10 @@ def train_source(args, config):
             netF.train()
             netB.train()
             netC.train()
+
+    log_str = 'Performance for best model: Acc_S = {:.2f}%; Acc_T = {:.2f}%'.format(
+                                                                              acc_s_best, acc_t_best)
+    logger.info(log_str)
 
     torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
     torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
@@ -481,6 +496,10 @@ if __name__ == "__main__":
         os.system('mkdir -p ' + args.output_dir_src)
     if not osp.exists(args.output_dir_src):
         os.mkdir(args.output_dir_src)
+
+    path = os.path.join(args.output_dir_src, "config.json")
+    with open(path, "w") as f:
+        f.write(config.dump())
 
     args.out_file = open(osp.join(args.output_dir_src, 'log.txt'), 'w')
     args.out_file.write(print_args(args) + '\n')
