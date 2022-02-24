@@ -3,6 +3,7 @@ output/
 .idea/
 logs/
 configs/
+data/
 
 transfg/
 

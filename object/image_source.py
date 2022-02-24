@@ -2,6 +2,7 @@ import argparse
 import os
 import os.path as osp
 import random
+import sys
 
 import numpy as np
 import torch
@@ -10,8 +11,10 @@ import torch.optim as optim
 from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from torchvision.transforms import Normalize
+from tqdm import tqdm
 
 import loss
 import network
@@ -207,6 +210,12 @@ def train_source(args, config):
 
     if args.dset == 'rareplanes-synth':
         dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
+        dset_loaders = {}
+        dset_loaders["source_tr"] = data_loader_train
+        dset_loaders["source_te"] = data_loader_val
+
+        # TODO: Want to use target dataset to select the best model
+
     else:
         dset_loaders = data_load(args)
 
@@ -223,6 +232,7 @@ def train_source(args, config):
         if config.MODEL.PRETRAINED and (not config.MODEL.RESUME):
             load_pretrained(config, netF, logger)
         netF.head = nn.Identity()  # Ignore classification head
+        netF.cuda()
 
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=num_features,
                                    bottleneck_dim=args.bottleneck).cuda()
@@ -240,9 +250,12 @@ def train_source(args, config):
     optimizer = op_copy(optimizer)
 
     acc_init = 0
-    max_iter = args.max_epoch * len(dset_loaders["source_tr"])
+    max_iter = config.TRAIN.EPOCHS * len(dset_loaders["source_tr"])
     interval_iter = max_iter // 10
     iter_num = 0
+    epoch_num = 0
+
+    writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
 
     netF.train()
     netB.train()
@@ -250,10 +263,13 @@ def train_source(args, config):
 
     while iter_num < max_iter:
         try:
-            inputs_source, labels_source = iter_source.next()
+            inputs_source, labels_source = next(iter_source)
         except:
-            iter_source = iter(dset_loaders["source_tr"])
-            inputs_source, labels_source = iter_source.next()
+            print('Starting Epoch Number %d' % epoch_num)
+            epoch_num += 1
+            tqdm_iter = tqdm(dset_loaders["source_tr"], file=sys.stdout)
+            iter_source = iter(tqdm_iter)
+            inputs_source, labels_source = next(iter_source)
 
         if inputs_source.size(0) == 1:
             continue
@@ -270,6 +286,9 @@ def train_source(args, config):
         classifier_loss.backward()
         optimizer.step()
 
+        writer.add_scalar('Loss/Train', classifier_loss.item(), global_step=iter_num)
+        writer.add_scalar('LR', optimizer.param_groups[0]['lr'], global_step=iter_num)
+
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             netF.eval()
             netB.eval()
@@ -281,9 +300,11 @@ def train_source(args, config):
             else:
                 acc_s_te, _ = cal_acc(dset_loaders['source_te'], netF, netB, netC, False)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name_src, iter_num, max_iter, acc_s_te)
+                tqdm_iter.set_description(log_str)
+                writer.add_scalar('Validation Accuracy', scalar_value=acc_s_te, global_step=iter_num)
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
-            print(log_str + '\n')
+            # print(log_str + '\n')
 
             if acc_s_te >= acc_init:
                 acc_init = acc_s_te
