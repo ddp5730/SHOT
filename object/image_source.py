@@ -240,6 +240,7 @@ def train_source(args, config):
         num_features = netF.num_features
 
         # Load pretrained weights
+        netF.head = nn.Identity()
         if config.MODEL.PRETRAINED and (not config.MODEL.RESUME):
             load_pretrained(config, netF, logger)
         netF.head = nn.Identity()  # Ignore classification head
