@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
+from timm.scheduler import CosineLRScheduler
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
@@ -253,16 +254,29 @@ def train_source(args, config):
         param_group += [{'params': v, 'lr': learning_rate}]
     for k, v in netC.named_parameters():
         param_group += [{'params': v, 'lr': learning_rate}]
-    optimizer = optim.SGD(param_group)
+    optimizer = optim.AdamW(param_group, eps=config.TRAIN.OPTIMIZER.EPS, betas=config.TRAIN.OPTIMIZER.BETAS,
+                                lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
     optimizer = op_copy(optimizer)
 
     acc_t_best = 0
     acc_s_best = 0
     max_iter = config.TRAIN.EPOCHS * len(dset_loaders["source_tr"])
-    interval_iter = max_iter // 10
+    warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * len(dset_loaders["source_tr"]))
+    interval_iter = len(dset_loaders["source_tr"]) // 10
     # interval_iter = 10
     iter_num = 0
     epoch_num = 0
+
+    cosine_lr_scheduler = CosineLRScheduler(
+        optimizer,
+        t_initial=max_iter,
+        cycle_mul=1.,
+        lr_min=config.TRAIN.MIN_LR,
+        warmup_lr_init=config.TRAIN.WARMUP_LR,
+        warmup_t=warmup_steps,
+        cycle_limit=1,
+        t_in_epochs=False,
+    )
 
     writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
 
@@ -284,7 +298,7 @@ def train_source(args, config):
             continue
 
         iter_num += 1
-        lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
+        # lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
         inputs_source, labels_source = inputs_source.cuda(), labels_source.cuda()
         outputs_source = netC(netB(netF(inputs_source)))
@@ -294,6 +308,7 @@ def train_source(args, config):
         optimizer.zero_grad()
         classifier_loss.backward()
         optimizer.step()
+        cosine_lr_scheduler.step_update(iter_num)
 
         writer.add_scalar('Loss/Train', classifier_loss.item(), global_step=iter_num)
         writer.add_scalar('LR', optimizer.param_groups[0]['lr'], global_step=iter_num)
@@ -334,6 +349,7 @@ def train_source(args, config):
                                                                               acc_s_best, acc_t_best)
     logger.info(log_str)
 
+    # TODO: Make sure you can reload the swin model from this saved checkpoint file
     torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
     torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
     torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
