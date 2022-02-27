@@ -222,6 +222,7 @@ def train_source(args, config):
         config.DATA.DATASET = 'rareplanes-real'
         config.DATA.DATA_PATH = '/home/poppfd/data/RarePlanesCrop/chipped/real'
         config.OUTPUT = args.output_dir_src
+        config.AMP_OPT_LEVEL = "O0"
         config.freeze()
         dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
         data_loader_target_val = data_loader_val
@@ -460,6 +461,7 @@ if __name__ == "__main__":
     parser.add_argument("--local_rank", type=int, default=0, help='local rank for DistributedDataParallel')
 
     args = parser.parse_args()
+    args.eval_period = -1
 
     config = get_config(args)
 
