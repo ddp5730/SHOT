@@ -22,14 +22,14 @@ import loss
 import network
 from data_list import ImageList
 from loss import CrossEntropyLabelSmooth
+
+import torch.distributed as dist
+
 from swin.config import get_config
 from swin.data import build_loader
 from swin.logger import create_logger
-from swin.main import validate
 from swin.models import build_model
 from swin.utils import load_pretrained, save_checkpoint
-
-import torch.distributed as dist
 
 
 def op_copy(optimizer):

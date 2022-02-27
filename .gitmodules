@@ -2,5 +2,5 @@
 	path = Swin-Transformer
 	url = git@github.com:ddp5730/Swin-Transformer.git
 [submodule "swin"]
-	path = Swin-Transformer
+	path = swin
 	url = git@github.com:ddp5730/Swin-Transformer.git
