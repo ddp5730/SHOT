@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import os.path as osp
 import random
@@ -26,7 +27,7 @@ from swin.data import build_loader
 from swin.logger import create_logger
 from swin.main import validate
 from swin.models import build_model
-from swin.utils import load_pretrained
+from swin.utils import load_pretrained, save_checkpoint
 
 import torch.distributed as dist
 
@@ -220,6 +221,7 @@ def train_source(args, config):
         config.defrost()
         config.DATA.DATASET = 'rareplanes-real'
         config.DATA.DATA_PATH = '/home/poppfd/data/RarePlanesCrop/chipped/real'
+        config.OUTPUT = args.output_dir_src
         config.freeze()
         dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
         data_loader_target_val = data_loader_val
@@ -334,10 +336,10 @@ def train_source(args, config):
             if acc_t_te >= acc_t_best:
                 acc_t_best = acc_t_te
                 acc_s_best = acc_s_te
-                best_netF = netF.state_dict()
+                best_netF = copy.deepcopy(netF)
                 best_netB = netB.state_dict()
                 best_netC = netC.state_dict()
-                torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
+                save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
                 torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
                 torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
 
@@ -350,7 +352,7 @@ def train_source(args, config):
     logger.info(log_str)
 
     # TODO: Make sure you can reload the swin model from this saved checkpoint file
-    torch.save(best_netF, osp.join(args.output_dir_src, "source_F.pt"))
+    save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
     torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
     torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
 
