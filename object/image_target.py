@@ -209,6 +209,7 @@ def train_target(args):
     max_iter = args.max_epoch * len(dset_loaders["target"])
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * len(dset_loaders["target"]))
     interval_iter = len(dset_loaders["target"]) // 10
+    # interval_iter = 10
     iter_num = 0
     epoch_num = 0
     acc_s_best = 0
@@ -241,7 +242,7 @@ def train_target(args):
         if iter_num % interval_iter == 0 and args.cls_par > 0:
             netF.eval()
             netB.eval()
-            mem_label = obtain_label(dset_loaders['test'], netF, netB, netC, args)
+            mem_label = obtain_label(dset_loaders['target'], netF, netB, netC, args)
             mem_label = torch.from_numpy(mem_label).cuda()
             netF.train()
             netB.train()
@@ -273,13 +274,13 @@ def train_target(args):
             im_loss = entropy_loss * args.ent_par
             classifier_loss += im_loss
 
-        writer.add_scalar('Loss/Train', classifier_loss.item(), global_step=iter_num)
-        writer.add_scalar('LR', optimizer.param_groups[0]['lr'], global_step=iter_num)
-
         optimizer.zero_grad()
         classifier_loss.backward()
         optimizer.step()
         cosine_lr_scheduler.step_update(iter_num)
+
+        writer.add_scalar('Loss/Train', classifier_loss.item(), global_step=iter_num)
+        writer.add_scalar('LR', optimizer.param_groups[0]['lr'], global_step=iter_num)
 
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             netF.eval()
@@ -301,16 +302,16 @@ def train_target(args):
                 best_netB = netB.state_dict()
                 best_netC = netC.state_dict()
                 save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
-                torch.save(best_netB, osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
-                torch.save(best_netC, osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
+                torch.save(best_netB, osp.join(args.output_dir_src, "target_B_" + args.savename + ".pt"))
+                torch.save(best_netC, osp.join(args.output_dir_src, "target_C_" + args.savename + ".pt"))
 
             netF.train()
             netB.train()
 
     if args.issave:
         save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
-        torch.save(netB.state_dict(), osp.join(args.output_dir, "target_B_" + args.savename + ".pt"))
-        torch.save(netC.state_dict(), osp.join(args.output_dir, "target_C_" + args.savename + ".pt"))
+        torch.save(netB.state_dict(), osp.join(args.output_dir_src, "target_B_" + args.savename + ".pt"))
+        torch.save(netC.state_dict(), osp.join(args.output_dir_src, "target_C_" + args.savename + ".pt"))
 
     return netF, netB, netC
 
