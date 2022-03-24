@@ -31,6 +31,8 @@ from swin.logger import create_logger
 from swin.models import build_model
 from swin.utils import load_pretrained, save_checkpoint
 
+TOP_N = 10
+
 
 def op_copy(optimizer):
     for param_group in optimizer.param_groups:
@@ -211,6 +213,10 @@ def train_source(args, config):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
     if args.dset == 'rareplanes-synth':
+        config.defrost()
+        config.DATA.IDX_DATASET = False
+        config.freeze()
+
         dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
         dset_loaders = {}
         dset_loaders["source_tr"] = data_loader_train
@@ -265,10 +271,13 @@ def train_source(args, config):
     acc_s_best = 0
     max_iter = config.TRAIN.EPOCHS * len(dset_loaders["source_tr"])
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * len(dset_loaders["source_tr"]))
-    interval_iter = len(dset_loaders["source_tr"]) // 10
-    # interval_iter = 10
+    # interval_iter = len(dset_loaders["source_tr"]) // 10
+    interval_iter = 10
     iter_num = 0
     epoch_num = 0
+    eval_num = 0
+
+    validation_accuracy = []
 
     cosine_lr_scheduler = CosineLRScheduler(
         optimizer,
@@ -333,16 +342,23 @@ def train_source(args, config):
                 writer.add_scalar('Target Validation Accuracy', scalar_value=acc_t_te, global_step=iter_num)
             logger.info(log_str + '\n')
             # print(log_str + '\n')
+            validation_accuracy.append(acc_t_te)
 
-            if acc_t_te >= acc_t_best:
-                acc_t_best = acc_t_te
-                acc_s_best = acc_s_te
-                best_netF = copy.deepcopy(netF)
-                best_netB = netB.state_dict()
-                best_netC = netC.state_dict()
-                save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
-                torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
-                torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+            acc_t_best = acc_t_te
+            acc_s_best = acc_s_te
+            best_netF = copy.deepcopy(netF)
+            best_netB = netB.state_dict()
+            best_netC = netC.state_dict()
+            print_top_evals(np.asarray(validation_accuracy), n=2, logger=logger)
+            save_checkpoint(config, epoch_num, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger,
+                            eval_num=eval_num, validation_accuracy=np.asarray(validation_accuracy), top_n=TOP_N)
+            save_linear_net(best_netB, 'source_B', epoch_num, eval_num, np.asarray(validation_accuracy),
+                            args.output_dir_src, top_n=TOP_N)
+            save_linear_net(best_netC, 'source_C', epoch_num, eval_num, np.asarray(validation_accuracy),
+                            args.output_dir_src, top_n=TOP_N)
+            # torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
+            # torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+            eval_num += 1
 
             netF.train()
             netB.train()
@@ -352,12 +368,35 @@ def train_source(args, config):
                                                                               acc_s_best, acc_t_best)
     logger.info(log_str)
 
-    # TODO: Make sure you can reload the swin model from this saved checkpoint file
-    save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
-    torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
-    torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+    print_top_evals(np.asarray(validation_accuracy), n=TOP_N, logger=logger)
 
     return netF, netB, netC
+
+
+def save_linear_net(state_dict, net_name, epoch, eval, accuracies, output_path, top_n=10):
+    save_path = os.path.join(os.path.join(output_path, '%s_epoch_%d_eval_%d.pt' % (net_name, epoch, eval)))
+    torch.save(state_dict, save_path)
+
+    # Check if saved checkpoint is no longer in top-10
+    top_10_epochs = np.flip(np.argsort(accuracies))[:top_n]
+    for file in os.listdir(config.OUTPUT):
+        if net_name in file:
+            eval_num = file[file.rfind('_') + 1:file.find('.')]
+            eval_num = int(eval_num)
+            if eval_num not in top_10_epochs:
+                os.remove(os.path.join(config.OUTPUT, file))
+
+
+def print_top_evals(validation_accuracy, n=10, logger=None):
+    top_10_epochs = np.flip(np.argsort(validation_accuracy))[:n]
+    for i in range(top_10_epochs.size):
+        epoch_num = top_10_epochs[i]
+        epoch_accuracy = validation_accuracy[epoch_num]
+        log_str = 'Rank %d: Eval: %d, Acc1: %.3f%%' % (i + 1, epoch_num, epoch_accuracy)
+        if logger is not None:
+            logger.info(log_str)
+        else:
+            print(log_str)
 
 
 def test_target(args):
