@@ -209,6 +209,7 @@ def train_target(args):
     max_iter = args.max_epoch * len(dset_loaders["target"])
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * len(dset_loaders["target"]))
     interval_iter = len(dset_loaders["target"]) // 10
+    pseudo_label_iter = len(dset_loaders['target'])
     # interval_iter = 10
     iter_num = 0
     epoch_num = 0
@@ -235,11 +236,12 @@ def train_target(args):
             tqdm_iter = tqdm(dset_loaders['target'], file=sys.stdout)
             iter_test = iter(tqdm_iter)
             inputs_test, _, tar_idx = next(iter_test)
+            epoch_num += 1
 
         if inputs_test.size(0) == 1:
             continue
 
-        if iter_num % interval_iter == 0 and args.cls_par > 0:
+        if iter_num % pseudo_label_iter == 0 and args.cls_par > 0:
             netF.eval()
             netB.eval()
             mem_label = obtain_label(dset_loaders['target'], netF, netB, netC, args)
@@ -256,7 +258,8 @@ def train_target(args):
         outputs_test = netC(features_test)
 
         if args.cls_par > 0:
-            pred = mem_label[tar_idx]
+            pred = mem_label[tar_idx]  # Due to a bug, the batch size must evenly divide the training dataset or
+                                       # this line will trigger an index out of bounds error.  Could fix at some point...
             classifier_loss = nn.CrossEntropyLoss()(outputs_test, pred)
             classifier_loss *= args.cls_par
             if iter_num < interval_iter and args.dset == "VISDA-C":
@@ -296,7 +299,7 @@ def train_target(args):
                 writer.add_scalar('Validation Accuracy', scalar_value=acc_s_te, global_step=iter_num)
             logger.info(log_str + '\n')
 
-            if acc_s_te >= acc_s_best:
+            if acc_s_te >= acc_s_best and epoch_num > 1:
                 acc_s_best = acc_s_te
                 best_netF = copy.deepcopy(netF)
                 best_netB = netB.state_dict()
