@@ -271,8 +271,8 @@ def train_source(args, config):
     acc_s_best = 0
     max_iter = config.TRAIN.EPOCHS * len(dset_loaders["source_tr"])
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * len(dset_loaders["source_tr"]))
-    # interval_iter = len(dset_loaders["source_tr"]) // 10
-    interval_iter = 10
+    interval_iter = len(dset_loaders["source_tr"]) // 10
+    # interval_iter = 10
     iter_num = 0
     epoch_num = 0
     eval_num = 0
@@ -349,7 +349,7 @@ def train_source(args, config):
             best_netF = copy.deepcopy(netF)
             best_netB = netB.state_dict()
             best_netC = netC.state_dict()
-            print_top_evals(np.asarray(validation_accuracy), n=2, logger=logger)
+            print_top_evals(np.asarray(validation_accuracy), n=TOP_N, logger=logger)
             save_checkpoint(config, epoch_num, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger,
                             eval_num=eval_num, validation_accuracy=np.asarray(validation_accuracy), top_n=TOP_N)
             save_linear_net(best_netB, 'source_B', epoch_num, eval_num, np.asarray(validation_accuracy),
