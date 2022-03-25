@@ -151,13 +151,13 @@ def evaluate_models(args, config):
     file_name = config.MODEL.PRETRAINED
     eval_num_str = file_name[file_name.rfind('_') + 1:file_name.find('.')]
     pretrained_dir = os.path.dirname(config.MODEL.PRETRAINED)
-    netB_path = ''
-    netC_path = ''
+    netB_path = args.netB
+    netC_path = args.netC
     for file in os.listdir(pretrained_dir):
         if ('eval_%s' % eval_num_str) in file:
-            if 'source_B' in file:
+            if 'source_B' in file and netB_path == '':
                 netB_path = os.path.join(pretrained_dir, file)
-            elif 'source_C' in file:
+            elif 'source_C' in file and netC_path == '':
                 netC_path = os.path.join(pretrained_dir, file)
 
     netB.load_state_dict(torch.load(netB_path))
@@ -209,6 +209,8 @@ if __name__ == "__main__":
     parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
     parser.add_argument('--pretrained',
                         help='pretrained weight from checkpoint, could be imagenet22k pretrained weight')
+    parser.add_argument('--netB', default='')
+    parser.add_argument('--netC', default='')
     parser.add_argument('--data-path', type=str, help='path to dataset')
     parser.add_argument('--transfer-dataset', action='store_true', help='Transfer the model to a new dataset')
     parser.add_argument('--name', type=str, default='test',

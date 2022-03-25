@@ -28,6 +28,7 @@ from swin.data import build_loader
 from swin.logger import create_logger
 from swin.models import build_model
 from swin.utils import load_pretrained, save_checkpoint
+from center_loss import CenterLoss
 
 TOP_N = 10
 
@@ -288,6 +289,12 @@ def train_source(args, config):
         t_in_epochs=False,
     )
 
+    if args.center_loss:
+        cent_lr = args.cent_lr
+        cent_alpha = args.cent_alpha
+        center_loss_func = CenterLoss(num_classes=args.class_num, feat_dim=netF.num_features, use_gpu=True)
+        optimizer_centloss = torch.optim.AdamW(center_loss_func.parameters(), lr=cent_lr)
+
     writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
 
     netF.train()
@@ -311,12 +318,21 @@ def train_source(args, config):
         # lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
         inputs_source, labels_source = inputs_source.cuda(), labels_source.cuda()
-        outputs_source = netC(netB(netF(inputs_source)))
+        features = netF(inputs_source)
+        outputs_source = netC(netB(features))
         classifier_loss = CrossEntropyLabelSmooth(num_classes=args.class_num, epsilon=args.smooth)(outputs_source,
-                                                                                                   labels_source)
+                                                                                         labels_source)
+        if iter_num > warmup_steps and args.center_loss:
+            center_loss = center_loss_func(features, labels_source)
+            classifier_loss = (cent_alpha*center_loss) + classifier_loss
+            optimizer_centloss.zero_grad()
 
         optimizer.zero_grad()
         classifier_loss.backward()
+        if iter_num > warmup_steps and args.center_loss:
+            for param in center_loss_func.parameters():
+                param.grad.data *= (1. / cent_alpha)
+            optimizer_centloss.step()
         optimizer.step()
         cosine_lr_scheduler.step_update(iter_num)
 
@@ -465,6 +481,9 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default='san')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda', 'oda'])
     parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
+    parser.add_argument('--center-loss', default=False)
+    parser.add_argument('--cent-lr', default=0.01, type=float)
+    parser.add_argument('--cent-alpha', default=0.3, type=float)
 
     parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
     parser.add_argument('--pretrained',
