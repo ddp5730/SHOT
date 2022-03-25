@@ -7,6 +7,7 @@ import sys
 
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.cluster import KMeans
@@ -22,9 +23,6 @@ import loss
 import network
 from data_list import ImageList
 from loss import CrossEntropyLabelSmooth
-
-import torch.distributed as dist
-
 from swin.config import get_config
 from swin.data import build_loader
 from swin.logger import create_logger
