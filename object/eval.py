@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 import loss
 import network
+from object.image_target import obtain_label
 from swin.config import get_config
 from swin.data import build_loader
 from swin.logger import create_logger
@@ -21,11 +22,14 @@ from swin.models import build_model
 from swin.utils import load_pretrained
 
 
-def cal_acc(loader, netF, netB, netC, name, flag=False):
+def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False):
     start_test = True
 
     num_features = netF.num_features
     embeddings = np.zeros((0, num_features))
+
+    if eval_psuedo_labels:
+        mem_label = obtain_label(loader, netF, netB, netC, args)
 
     with torch.no_grad():
         iter_test = iter(loader)
@@ -33,16 +37,21 @@ def cal_acc(loader, netF, netB, netC, name, flag=False):
             data = next(iter_test)
             inputs = data[0]
             labels = data[1]
+            pseudo_idx = data[2]
             inputs = inputs.cuda()
             feat_embeddings = netF(inputs)
             outputs = netC(netB(feat_embeddings))
             if start_test:
                 all_output = outputs.float().cpu()
                 all_label = labels.float()
+                if eval_psuedo_labels:
+                    all_psuedo = mem_label[pseudo_idx]
                 start_test = False
             else:
                 all_output = torch.cat((all_output, outputs.float().cpu()), 0)
                 all_label = torch.cat((all_label, labels.float()), 0)
+                if eval_psuedo_labels:
+                    all_psuedo = np.concatenate((all_psuedo, mem_label[pseudo_idx]), 0)
             embeddings = np.concatenate([embeddings, feat_embeddings.detach().cpu().numpy()], axis=0)
 
     all_output = nn.Softmax(dim=1)(all_output)
@@ -60,6 +69,22 @@ def cal_acc(loader, netF, netB, netC, name, flag=False):
                    alpha=0.5)
     ax.legend(fontsize='large', markerscale=2)
     plt.savefig(os.path.join(config.OUTPUT, '%s_tsne.png' % name))
+    plt.clf()
+
+    if eval_psuedo_labels:
+        fig, ax = plt.subplots(figsize=(8, 8))
+        num_categories = 3
+        for lab in range(num_categories):
+            indices = all_psuedo == lab
+            ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], label=lab,
+                       alpha=0.5)
+        ax.legend(fontsize='large', markerscale=2)
+        plt.savefig(os.path.join(config.OUTPUT, '%s_pseudo_tnse.png' % name))
+        plt.clf()
+
+        log_str = classification_report(all_label, all_psuedo, target_names=loader.dataset.classes, digits=4)
+        print_all(args.out_file, 'Performance of pseudo labels')
+        print_all(args.out_file, log_str)
 
     plt.clf()
     cf_matrix = confusion_matrix(all_label, all_preds)
@@ -88,7 +113,7 @@ def evaluate_models(args, config):
 
     if args.dset == 'rareplanes-synth':
         config.defrost()
-        config.DATA.IDX_DATASET = False
+        config.DATA.IDX_DATASET = True
         config.freeze()
 
         _, _, _, data_loader_val_source, _ = build_loader(config)
@@ -145,7 +170,7 @@ def evaluate_models(args, config):
 
     # Evaluate model on both test and training dataset
     cal_acc(data_loader_val_source, netF, netB, netC, 'source')
-    cal_acc(data_loader_val_target, netF, netB, netC, 'target')
+    cal_acc(data_loader_val_target, netF, netB, netC, 'target', eval_psuedo_labels=True)
 
 
 
@@ -174,6 +199,12 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default='san')
     parser.add_argument('--da', type=str, default='uda', choices=['uda', 'pda', 'oda'])
     parser.add_argument('--trte', type=str, default='val', choices=['full', 'val'])
+
+    # Pseudo-label parameters
+    parser.add_argument('--distance', type=str, default='cosine', choices=["euclidean", "cosine"])
+    parser.add_argument('--gent', type=bool, default=True)
+    parser.add_argument('--ent', type=bool, default=True)
+    parser.add_argument('--threshold', type=int, default=0)
 
     parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
     parser.add_argument('--pretrained',
