@@ -8,6 +8,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from matplotlib import pyplot as plt
+from sklearn.manifold import TSNE
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 from tqdm import tqdm
 
@@ -22,6 +23,10 @@ from swin.utils import load_pretrained
 
 def cal_acc(loader, netF, netB, netC, name, flag=False):
     start_test = True
+
+    num_features = netF.num_features
+    embeddings = np.zeros((0, num_features))
+
     with torch.no_grad():
         iter_test = iter(loader)
         for i in tqdm(range(len(loader))):
@@ -38,16 +43,31 @@ def cal_acc(loader, netF, netB, netC, name, flag=False):
             else:
                 all_output = torch.cat((all_output, outputs.float().cpu()), 0)
                 all_label = torch.cat((all_label, labels.float()), 0)
+            embeddings = np.concatenate([embeddings, feat_embeddings.detach().cpu().numpy()], axis=0)
 
     all_output = nn.Softmax(dim=1)(all_output)
     _, predict = torch.max(all_output, 1)
     all_preds = torch.squeeze(predict).float()
 
+    tsne = TSNE(2, verbose=1)
+    tsne_proj = tsne.fit_transform(embeddings)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    num_categories = 3
+    for lab in range(num_categories):
+        indices = all_label == lab
+        ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], label=lab,
+                   alpha=0.5)
+    ax.legend(fontsize='large', markerscale=2)
+    plt.savefig(os.path.join(config.OUTPUT, '%s_tsne.png' % name))
+
+    plt.clf()
     cf_matrix = confusion_matrix(all_label, all_preds)
     acc = cf_matrix.diagonal() / cf_matrix.sum(axis=1) * 100
     disp = ConfusionMatrixDisplay(confusion_matrix=cf_matrix, display_labels=loader.dataset.classes)
     disp.plot()
     plt.savefig(os.path.join(args.output_dir_src, '%s_cf.png' % name))
+    plt.clf()
 
     # class_labels = [int(i) for i in test_loader.dataset.classes]
     log_str = classification_report(all_label, all_preds, target_names=loader.dataset.classes, digits=4)
@@ -236,7 +256,9 @@ if __name__ == "__main__":
                 args.src_classes = [i for i in range(25)]
                 args.tar_classes = [i for i in range(65)]
 
-    args.output_dir_src = osp.join(args.output, 'eval', args.name, names[args.source][0].upper())
+    file_name = config.MODEL.PRETRAINED
+    eval_num_str = file_name[file_name.rfind('_') + 1:file_name.find('.')]
+    args.output_dir_src = osp.join(args.output, 'eval', args.name, 'eval_%s' % eval_num_str)
     args.name_src = names[args.source][0].upper()
     if not osp.exists(args.output_dir_src):
         os.system('mkdir -p ' + args.output_dir_src)
