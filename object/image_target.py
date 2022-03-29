@@ -21,11 +21,16 @@ from tqdm import tqdm
 import loss
 import network
 from data_list import ImageList_idx
+from object.image_source import print_top_evals, save_linear_net
 from swin.config import get_config
 from swin.data import build_loader
 from swin.logger import create_logger
 from swin.models import build_model
 from swin.utils import load_pretrained, save_checkpoint
+
+import object.image_eval as image_eval
+
+TOP_N = 3
 
 
 def op_copy(optimizer):
@@ -110,38 +115,6 @@ def data_load(args):
     return dset_loaders
 
 
-def cal_acc(loader, netF, netB, netC, flag=False):
-    start_test = True
-    with torch.no_grad():
-        iter_test = iter(loader)
-        for i in range(len(loader)):
-            data = iter_test.next()
-            inputs = data[0]
-            labels = data[1]
-            inputs = inputs.cuda()
-            outputs = netC(netB(netF(inputs)))
-            if start_test:
-                all_output = outputs.float().cpu()
-                all_label = labels.float()
-                start_test = False
-            else:
-                all_output = torch.cat((all_output, outputs.float().cpu()), 0)
-                all_label = torch.cat((all_label, labels.float()), 0)
-    _, predict = torch.max(all_output, 1)
-    accuracy = torch.sum(torch.squeeze(predict).float() == all_label).item() / float(all_label.size()[0])
-    mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).cpu().data.item()
-
-    if flag:
-        matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
-        acc = matrix.diagonal() / matrix.sum(axis=1) * 100
-        aacc = acc.mean()
-        aa = [str(np.round(i, 2)) for i in acc]
-        acc = ' '.join(aa)
-        return aacc, acc
-    else:
-        return accuracy * 100, mean_ent
-
-
 def train_target(args):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
@@ -180,11 +153,21 @@ def train_target(args):
 
     # modelpath = args.output_dir_src + '/ckpt_epoch_0.pth'
     # netF.load_state_dict(torch.load(modelpath))
-    pretrained_dir = os.path.dirname(args.pretrained)
-    modelpath = pretrained_dir + '/source_B.pt'
-    netB.load_state_dict(torch.load(modelpath))
-    modelpath = pretrained_dir + '/source_C.pt'
-    netC.load_state_dict(torch.load(modelpath))
+    file_name = config.MODEL.PRETRAINED
+    eval_num_str = file_name[file_name.rfind('_') + 1:file_name.find('.')]
+    pretrained_dir = os.path.dirname(config.MODEL.PRETRAINED)
+    netB_path = args.netB
+    netC_path = args.netC
+    for file in os.listdir(pretrained_dir):
+        if ('eval_%s' % eval_num_str) in file:
+            if 'source_B' in file and netB_path == '':
+                netB_path = os.path.join(pretrained_dir, file)
+            elif 'source_C' in file and netC_path == '':
+                netC_path = os.path.join(pretrained_dir, file)
+
+    netB.load_state_dict(torch.load(netB_path))
+    netC.load_state_dict(torch.load(netC_path))
+
     netC.eval()
     for k, v in netC.named_parameters():
         v.requires_grad = False
@@ -214,6 +197,9 @@ def train_target(args):
     iter_num = 0
     epoch_num = 0
     acc_s_best = 0
+    eval_num = 0
+
+    validation_accuracy = []
 
     cosine_lr_scheduler = CosineLRScheduler(
         optimizer,
@@ -293,28 +279,31 @@ def train_target(args):
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name, iter_num, max_iter,
                                                                             acc_s_te) + '\n' + acc_list
             else:
-                acc_s_te, _ = cal_acc(dset_loaders['test'], netF, netB, netC, False)
+                acc_s_te = image_eval.cal_acc(dset_loaders['test'], netF, netB, netC, name=('eval/eval_%d' % eval_num),
+                                                 eval_psuedo_labels=False, out_path=config.OUTPUT)
                 log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.name, iter_num, max_iter, acc_s_te)
                 tqdm_iter.set_description(log_str)
                 writer.add_scalar('Validation Accuracy', scalar_value=acc_s_te, global_step=iter_num)
             logger.info(log_str + '\n')
+            validation_accuracy.append(acc_s_te)
 
-            if acc_s_te >= acc_s_best and epoch_num > 1:
-                acc_s_best = acc_s_te
-                best_netF = copy.deepcopy(netF)
-                best_netB = netB.state_dict()
-                best_netC = netC.state_dict()
-                save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
-                torch.save(best_netB, osp.join(args.output_dir_src, "target_B_" + args.savename + ".pt"))
-                torch.save(best_netC, osp.join(args.output_dir_src, "target_C_" + args.savename + ".pt"))
+            best_netF = copy.deepcopy(netF)
+            best_netB = netB.state_dict()
+            best_netC = netC.state_dict()
+            print_top_evals(np.asarray(validation_accuracy), n=TOP_N, logger=logger)
+            save_checkpoint(config, epoch_num, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger,
+                            eval_num=eval_num, validation_accuracy=np.asarray(validation_accuracy), top_n=TOP_N)
+            save_linear_net(best_netB, 'source_B', epoch_num, eval_num, np.asarray(validation_accuracy),
+                            args.output_dir_src, top_n=TOP_N)
+            save_linear_net(best_netC, 'source_C', epoch_num, eval_num, np.asarray(validation_accuracy),
+                            args.output_dir_src, top_n=TOP_N)
+            # torch.save(best_netB, osp.join(args.output_dir_src, "source_B.pt"))
+            # torch.save(best_netC, osp.join(args.output_dir_src, "source_C.pt"))
+            eval_num += 1
 
             netF.train()
             netB.train()
 
-    if args.issave:
-        save_checkpoint(config, 0, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger)
-        torch.save(netB.state_dict(), osp.join(args.output_dir_src, "target_B_" + args.savename + ".pt"))
-        torch.save(netC.state_dict(), osp.join(args.output_dir_src, "target_C_" + args.savename + ".pt"))
 
     return netF, netB, netC
 
@@ -425,6 +414,8 @@ if __name__ == "__main__":
     parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
     parser.add_argument('--pretrained',
                         help='pretrained weight from checkpoint, could be imagenet22k pretrained weight')
+    parser.add_argument('--netB', default='')
+    parser.add_argument('--netC', default='')
     parser.add_argument('--data-path', type=str, help='path to dataset')
     parser.add_argument('--transfer-dataset', action='store_true', help='Transfer the model to a new dataset')
     parser.add_argument('--name', type=str, default='test',
@@ -516,6 +507,8 @@ if __name__ == "__main__":
             os.system('mkdir -p ' + args.output_dir_src)
         if not osp.exists(args.output_dir_src):
             os.mkdir(args.output_dir_src)
+        if not osp.exists(os.path.join(args.output_dir_src, 'eval')):
+            os.mkdir(os.path.join(args.output_dir_src, 'eval'))
 
         args.savename = 'par_' + str(args.cls_par)
         if args.da == 'pda':

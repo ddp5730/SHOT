@@ -22,7 +22,7 @@ from swin.models import build_model
 from swin.utils import load_pretrained
 
 
-def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False):
+def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='test', print=False):
     start_test = True
 
     num_features = netF.num_features
@@ -58,9 +58,19 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False):
     _, predict = torch.max(all_output, 1)
     all_preds = torch.squeeze(predict).float()
 
+    plt.clf()
+    cf_matrix = confusion_matrix(all_label, all_preds)
+    acc = cf_matrix.diagonal() / cf_matrix.sum(axis=1) * 100
+    disp = ConfusionMatrixDisplay(confusion_matrix=cf_matrix, display_labels=loader.dataset.classes)
+    disp.plot()
+    plt.title('CF acc=%.2f%%' % acc.mean())
+    plt.savefig(os.path.join(out_path, '%s_cf.png' % name))
+    plt.clf()
+
     tsne = TSNE(2, verbose=1)
     tsne_proj = tsne.fit_transform(embeddings)
 
+    plt.clf()
     fig, ax = plt.subplots(figsize=(8, 8))
     num_categories = 3
     for lab in range(num_categories):
@@ -68,7 +78,8 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False):
         ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], label=lab,
                    alpha=0.5)
     ax.legend(fontsize='large', markerscale=2)
-    plt.savefig(os.path.join(config.OUTPUT, '%s_tsne.png' % name))
+    plt.title('TSNE acc=%.2f%%' % acc.mean())
+    plt.savefig(os.path.join(out_path, '%s_tsne.png' % name))
     plt.clf()
 
     if eval_psuedo_labels:
@@ -79,26 +90,21 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False):
             ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], label=lab,
                        alpha=0.5)
         ax.legend(fontsize='large', markerscale=2)
-        plt.savefig(os.path.join(config.OUTPUT, '%s_pseudo_tnse.png' % name))
+        plt.savefig(os.path.join(out_path, '%s_pseudo_tnse.png' % name))
         plt.clf()
 
         log_str = classification_report(all_label, all_psuedo, target_names=loader.dataset.classes, digits=4)
         print_all(args.out_file, 'Performance of pseudo labels')
         print_all(args.out_file, log_str)
 
-    plt.clf()
-    cf_matrix = confusion_matrix(all_label, all_preds)
-    acc = cf_matrix.diagonal() / cf_matrix.sum(axis=1) * 100
-    disp = ConfusionMatrixDisplay(confusion_matrix=cf_matrix, display_labels=loader.dataset.classes)
-    disp.plot()
-    plt.savefig(os.path.join(args.output_dir_src, '%s_cf.png' % name))
-    plt.clf()
-
     # class_labels = [int(i) for i in test_loader.dataset.classes]
     log_str = classification_report(all_label, all_preds, target_names=loader.dataset.classes, digits=4)
-    print_all(args.out_file, 'Performance on: %s' % name)
-    print_all(args.out_file, log_str)
-    print_all(args.out_file, '------------------------------\n\n')
+    if(print):
+        print_all(args.out_file, 'Performance on: %s' % name)
+        print_all(args.out_file, log_str)
+        print_all(args.out_file, '------------------------------\n\n')
+
+    plt.close()
 
     return acc.mean()
 

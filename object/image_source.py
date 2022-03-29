@@ -393,12 +393,12 @@ def save_linear_net(state_dict, net_name, epoch, eval, accuracies, output_path, 
 
     # Check if saved checkpoint is no longer in top-10
     top_10_epochs = np.flip(np.argsort(accuracies))[:top_n]
-    for file in os.listdir(config.OUTPUT):
+    for file in os.listdir(output_path):
         if net_name in file:
             eval_num = file[file.rfind('_') + 1:file.find('.')]
             eval_num = int(eval_num)
             if eval_num not in top_10_epochs:
-                os.remove(os.path.join(config.OUTPUT, file))
+                os.remove(os.path.join(output_path, file))
 
 
 def print_top_evals(validation_accuracy, n=10, logger=None):
