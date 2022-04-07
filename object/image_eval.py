@@ -22,7 +22,7 @@ from swin.models import build_model
 from swin.utils import load_pretrained
 
 
-def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='', print=False):
+def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='', print_out=False):
     start_test = True
 
     num_features = netF.num_features
@@ -60,6 +60,7 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='
 
     plt.clf()
     cf_matrix = confusion_matrix(all_label, all_preds)
+    cf_matrix = cf_matrix.astype('float') / cf_matrix.sum(axis=1)[:, np.newaxis]
     acc = cf_matrix.diagonal() / cf_matrix.sum(axis=1) * 100
     disp = ConfusionMatrixDisplay(confusion_matrix=cf_matrix, display_labels=loader.dataset.classes)
     disp.plot()
@@ -72,10 +73,10 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='
 
     plt.clf()
     fig, ax = plt.subplots(figsize=(8, 8))
-    num_categories = 3
+    num_categories = len(loader.dataset.classes)
     for lab in range(num_categories):
         indices = all_label == lab
-        ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], label=lab,
+        ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], label=loader.dataset.classes[lab],
                    alpha=0.5)
     ax.legend(fontsize='large', markerscale=2)
     plt.title('TSNE acc=%.2f%%' % acc.mean())
@@ -84,7 +85,7 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='
 
     if eval_psuedo_labels:
         fig, ax = plt.subplots(figsize=(8, 8))
-        num_categories = 3
+        num_categories = len(loader.dataset.classes)
         for lab in range(num_categories):
             indices = all_psuedo == lab
             ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], label=lab,
@@ -99,7 +100,7 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='
 
     # class_labels = [int(i) for i in test_loader.dataset.classes]
     log_str = classification_report(all_label, all_preds, target_names=loader.dataset.classes, digits=4)
-    if(print):
+    if(print_out):
         print_all(args.out_file, 'Performance on: %s' % name)
         print_all(args.out_file, log_str)
         print_all(args.out_file, '------------------------------\n\n')
@@ -117,7 +118,7 @@ def print_all(outfile, string):
 def evaluate_models(args, config):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
-    if args.dset == 'rareplanes-synth':
+    if args.dset == 'rareplanes-synth' or args.dset == 'xview' or args.dset == 'dota':
         config.defrost()
         config.DATA.IDX_DATASET = True
         config.freeze()
@@ -127,8 +128,8 @@ def evaluate_models(args, config):
         # TODO: Dynamically select target dataset
         # Validating on target dataset so no longer as unsupervised
         config.defrost()
-        config.DATA.DATASET = 'rareplanes-real'
-        config.DATA.DATA_PATH = '/home/poppfd/data/RarePlanesCrop/chipped/real'
+        config.DATA.DATASET = args.t_dset
+        config.DATA.DATA_PATH = args.t_data_path
         config.OUTPUT = args.output_dir_src
         config.AMP_OPT_LEVEL = "O0"
         config.freeze()
@@ -194,7 +195,9 @@ if __name__ == "__main__":
     parser.add_argument('--target', type=int, default=1, help="target")
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'dota', 'xview'])
+    parser.add_argument('--t-dset', type=str, default='rareplanes-real')
+    parser.add_argument('--t-data-path', type=str, default='/home/poppfd/data/RarePlanesCrop/chipped/real')
     parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101, swin-b")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
     parser.add_argument('--bottleneck', type=int, default=256)
@@ -267,6 +270,9 @@ if __name__ == "__main__":
     if args.dset == 'rareplanes-synth':
         names = ['train', 'validation']
         args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'dota' or args.dset == 'xview':
+        names = ['train', 'val']
+        args.class_num = config.MODEL.NUM_CLASSES
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -276,7 +282,7 @@ if __name__ == "__main__":
     random.seed(SEED)
     # torch.backends.cudnn.deterministic = True
 
-    if args.dset != 'rareplanes-synth':
+    if args.dset != 'rareplanes-synth' and args.dset != 'dota' and args.dset != 'xview':
         if args.dset_root is None:
             folder = './data/'
             args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'

@@ -211,7 +211,7 @@ def cal_acc_oda(loader, netF, netB, netC):
 def train_source(args, config):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
-    if args.dset == 'rareplanes-synth':
+    if args.dset == 'rareplanes-synth' or args.dset == 'dota':
         config.defrost()
         config.DATA.IDX_DATASET = False
         config.freeze()
@@ -224,8 +224,8 @@ def train_source(args, config):
         # TODO: Dynamically select target dataset
         # Validating on target dataset so no longer as unsupervised
         config.defrost()
-        config.DATA.DATASET = 'rareplanes-real'
-        config.DATA.DATA_PATH = '/home/poppfd/data/RarePlanesCrop/chipped/real'
+        config.DATA.DATASET = args.t_dset
+        config.DATA.DATA_PATH = args.t_data_path
         config.OUTPUT = args.output_dir_src
         config.AMP_OPT_LEVEL = "O0"
         config.freeze()
@@ -270,7 +270,7 @@ def train_source(args, config):
     acc_s_best = 0
     max_iter = config.TRAIN.EPOCHS * len(dset_loaders["source_tr"])
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * len(dset_loaders["source_tr"]))
-    interval_iter = len(dset_loaders["source_tr"]) // 10
+    interval_iter = len(dset_loaders["source_tr"]) // args.evals_per_epoch
     # interval_iter = 10
     iter_num = 0
     epoch_num = 0
@@ -469,7 +469,9 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'dota', 'xview'])
+    parser.add_argument('--t-dset', type=str, default='rareplanes-real')
+    parser.add_argument('--t-data-path', type=str, default='/home/poppfd/data/RarePlanesCrop/chipped/real')
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101, swin-b")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
@@ -484,6 +486,7 @@ if __name__ == "__main__":
     parser.add_argument('--center-loss', default=False)
     parser.add_argument('--cent-lr', default=0.01, type=float)
     parser.add_argument('--cent-alpha', default=0.3, type=float)
+    parser.add_argument('--evals-per-epoch', default=10, type=int)
 
     parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
     parser.add_argument('--pretrained',
@@ -538,6 +541,9 @@ if __name__ == "__main__":
     if args.dset == 'rareplanes-synth':
         names = ['train', 'validation']
         args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'dota' or args.dset == 'xview':
+        names = ['train', 'val']
+        args.class_num = config.MODEL.NUM_CLASSES
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -547,7 +553,7 @@ if __name__ == "__main__":
     random.seed(SEED)
     # torch.backends.cudnn.deterministic = True
 
-    if args.dset != 'rareplanes-synth':
+    if args.dset != 'rareplanes-synth' and args.dset != 'dota' and args.dset != 'xview':
         if args.dset_root is None:
             folder = './data/'
             args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
