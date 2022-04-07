@@ -21,6 +21,7 @@ from tqdm import tqdm
 import loss
 import network
 from data_list import ImageList_idx
+from object.center_loss import CenterLoss
 from object.image_source import print_top_evals, save_linear_net
 from swin.config import get_config
 from swin.data import build_loader
@@ -212,6 +213,12 @@ def train_target(args):
         t_in_epochs=False,
     )
 
+    if args.center_loss:
+        cent_lr = args.cent_lr
+        cent_alpha = args.cent_alpha
+        center_loss_func = CenterLoss(num_classes=args.class_num, feat_dim=netF.num_features, use_gpu=True)
+        optimizer_centloss = torch.optim.AdamW(center_loss_func.parameters(), lr=cent_lr)
+
     writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
 
     while iter_num < max_iter:
@@ -240,7 +247,8 @@ def train_target(args):
         iter_num += 1
         # lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
 
-        features_test = netB(netF(inputs_test))
+        features = netF(inputs_test)
+        features_test = netB(features)
         outputs_test = netC(features_test)
 
         if args.cls_par > 0:
@@ -262,6 +270,11 @@ def train_target(args):
                 entropy_loss -= gentropy_loss
             im_loss = entropy_loss * args.ent_par
             classifier_loss += im_loss
+
+        if iter_num > warmup_steps and args.center_loss:
+            center_loss = center_loss_func(features, pred)
+            classifier_loss = (cent_alpha*center_loss) + classifier_loss
+            optimizer_centloss.zero_grad()
 
         optimizer.zero_grad()
         classifier_loss.backward()
@@ -443,6 +456,10 @@ if __name__ == "__main__":
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--throughput', action='store_true', help='Test throughput only')
     parser.add_argument("--local_rank", type=int, default=0, help='local rank for DistributedDataParallel')
+
+    parser.add_argument('--center-loss', default=False)
+    parser.add_argument('--cent-lr', default=0.01, type=float)
+    parser.add_argument('--cent-alpha', default=0.3, type=float)
 
     args = parser.parse_args()
     args.eval_period = -1

@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 import loss
 import network
-from object.image_target import obtain_label
+import image_target
 from swin.config import get_config
 from swin.data import build_loader
 from swin.logger import create_logger
@@ -22,14 +22,14 @@ from swin.models import build_model
 from swin.utils import load_pretrained
 
 
-def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='test', print=False):
+def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='', print=False):
     start_test = True
 
     num_features = netF.num_features
     embeddings = np.zeros((0, num_features))
 
     if eval_psuedo_labels:
-        mem_label = obtain_label(loader, netF, netB, netC, args)
+        mem_label = image_target.obtain_label(loader, netF, netB, netC, args)
 
     with torch.no_grad():
         iter_test = iter(loader)
@@ -175,8 +175,8 @@ def evaluate_models(args, config):
     netC.eval()
 
     # Evaluate model on both test and training dataset
-    cal_acc(data_loader_val_source, netF, netB, netC, 'source')
-    cal_acc(data_loader_val_target, netF, netB, netC, 'target', eval_psuedo_labels=True)
+    cal_acc(data_loader_val_source, netF, netB, netC, 'source', out_path=args.output_dir_src)
+    cal_acc(data_loader_val_target, netF, netB, netC, 'target', out_path=args.output_dir_src, eval_psuedo_labels=True)
 
 
 
