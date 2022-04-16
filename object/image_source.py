@@ -19,8 +19,11 @@ from torchvision import transforms
 from torchvision.transforms import Normalize
 from tqdm import tqdm
 
+import HRNet.models.cls_hrnet
+from HRNet.config.default import _C as cfg
 import loss
 import network
+from HRNet.config import update_config
 from data_list import ImageList
 from loss import CrossEntropyLabelSmooth
 from swin.config import get_config
@@ -211,7 +214,7 @@ def cal_acc_oda(loader, netF, netB, netC):
 def train_source(args, config):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
-    if args.dset == 'rareplanes-synth' or args.dset == 'dota' or args.dset == 'xview' or args.dset == 'clrs' or args.dset == 'nwpu':
+    if args.dset == 'rareplanes-synth' or args.dset == 'rareplanes-real' or args.dset == 'dota' or args.dset == 'xview' or args.dset == 'clrs' or args.dset == 'nwpu':
         config.defrost()
         config.DATA.IDX_DATASET = False
         config.freeze()
@@ -249,6 +252,13 @@ def train_source(args, config):
             load_pretrained(config, netF, logger)
         netF.head = nn.Identity()  # Ignore classification head
         netF.cuda()
+    elif args.net[0:3] == 'hrn':
+        args.cfg = args.cfg_hr
+        update_config(cfg, args)
+        netF = HRNet.models.cls_hrnet.get_cls_net(cfg)
+        netF.load_state_dict(torch.load(config.MODEL.PRETRAINED), strict=False)
+        netF = netF.cuda()
+        num_features = 2048
 
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=num_features,
                                    bottleneck_dim=args.bottleneck).cuda()
@@ -360,12 +370,18 @@ def train_source(args, config):
 
             acc_t_best = acc_t_te
             acc_s_best = acc_s_te
-            best_netF = copy.deepcopy(netF)
+
             best_netB = netB.state_dict()
             best_netC = netC.state_dict()
             print_top_evals(np.asarray(validation_accuracy), n=TOP_N, logger=logger)
-            save_checkpoint(config, epoch_num, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger,
-                            eval_num=eval_num, validation_accuracy=np.asarray(validation_accuracy), top_n=TOP_N)
+            if args.net == 'swin-b':
+                best_netF = copy.deepcopy(netF)
+                save_checkpoint(config, epoch_num, best_netF, acc_s_best, optimizer, cosine_lr_scheduler, logger,
+                                eval_num=eval_num, validation_accuracy=np.asarray(validation_accuracy), top_n=TOP_N)
+            else:
+                best_netF = netF.state_dict()
+                save_linear_net(best_netF, 'source_F', epoch_num, eval_num, np.asarray(validation_accuracy),
+                                args.output_dir_src, top_n=TOP_N)
             save_linear_net(best_netB, 'source_B', epoch_num, eval_num, np.asarray(validation_accuracy),
                             args.output_dir_src, top_n=TOP_N)
             save_linear_net(best_netC, 'source_C', epoch_num, eval_num, np.asarray(validation_accuracy),
@@ -469,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'dota', 'xview', 'clrs', 'nwpu'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'rareplanes-real', 'dota', 'xview', 'clrs', 'nwpu'])
     parser.add_argument('--t-dset', type=str, default='rareplanes-real')
     parser.add_argument('--t-data-path', type=str, default='/home/poppfd/data/RarePlanesCrop/chipped/real')
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
@@ -489,6 +505,7 @@ if __name__ == "__main__":
     parser.add_argument('--evals-per-epoch', default=10, type=int)
 
     parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
+    parser.add_argument('--cfg-hr', type=str, metavar="FILE", help='path to config file', )
     parser.add_argument('--pretrained',
                         help='pretrained weight from checkpoint, could be imagenet22k pretrained weight')
     parser.add_argument('--data-path', type=str, help='path to dataset')
@@ -541,6 +558,9 @@ if __name__ == "__main__":
     if args.dset == 'rareplanes-synth':
         names = ['train', 'validation']
         args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'rareplanes-real':
+        names = ['train', 'test']
+        args.class_num = config.MODEL.NUM_CLASSES
     if args.dset == 'dota' or args.dset == 'xview':
         names = ['train', 'val']
         args.class_num = config.MODEL.NUM_CLASSES
@@ -556,7 +576,7 @@ if __name__ == "__main__":
     random.seed(SEED)
     # torch.backends.cudnn.deterministic = True
 
-    if args.dset != 'rareplanes-synth' and args.dset != 'dota' and args.dset != 'xview' and args.dset != 'clrs' and args.dset != 'nwpu':
+    if args.dset != 'rareplanes-synth' and args.dset != 'rareplanes-real' and args.dset != 'dota' and args.dset != 'xview' and args.dset != 'clrs' and args.dset != 'nwpu':
         if args.dset_root is None:
             folder = './data/'
             args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
