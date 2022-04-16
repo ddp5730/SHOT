@@ -30,7 +30,7 @@ from swin.models import build_model
 from swin.utils import load_pretrained, save_checkpoint
 from center_loss import CenterLoss
 
-TOP_N = 10
+TOP_N = 3
 
 
 def op_copy(optimizer):
@@ -211,7 +211,7 @@ def cal_acc_oda(loader, netF, netB, netC):
 def train_source(args, config):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
-    if args.dset == 'rareplanes-synth' or args.dset == 'dota':
+    if args.dset == 'rareplanes-synth' or args.dset == 'dota' or args.dset == 'xview' or args.dset == 'clrs' or args.dset == 'nwpu':
         config.defrost()
         config.DATA.IDX_DATASET = False
         config.freeze()
@@ -469,7 +469,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'dota', 'xview'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'dota', 'xview', 'clrs', 'nwpu'])
     parser.add_argument('--t-dset', type=str, default='rareplanes-real')
     parser.add_argument('--t-data-path', type=str, default='/home/poppfd/data/RarePlanesCrop/chipped/real')
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
@@ -544,6 +544,9 @@ if __name__ == "__main__":
     if args.dset == 'dota' or args.dset == 'xview':
         names = ['train', 'val']
         args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'clrs' or args.dset == 'nwpu':
+        names = ['train', 'test']
+        args.class_num = config.MODEL.NUM_CLASSES
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -553,7 +556,7 @@ if __name__ == "__main__":
     random.seed(SEED)
     # torch.backends.cudnn.deterministic = True
 
-    if args.dset != 'rareplanes-synth' and args.dset != 'dota' and args.dset != 'xview':
+    if args.dset != 'rareplanes-synth' and args.dset != 'dota' and args.dset != 'xview' and args.dset != 'clrs' and args.dset != 'nwpu':
         if args.dset_root is None:
             folder = './data/'
             args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'

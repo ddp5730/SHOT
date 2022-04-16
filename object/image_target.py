@@ -119,7 +119,7 @@ def data_load(args):
 def train_target(args):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
-    if args.dset == 'rareplanes':
+    if args.dset == 'rareplanes' or args.dset == 'dota' or args.dset == 'xview' or args.dset == 'clrs' or args.dset == 'nwpu':
         config.defrost()
         config.DATA.DATA_PATH = args.test_dset_path
         config.DATA.IDX_DATASET = True
@@ -132,6 +132,7 @@ def train_target(args):
         dset_loaders["test"] = data_loader_val
     else:
         dset_loaders = data_load(args)
+
     ## set base network
     if args.net[0:3] == 'res':
         netF = network.ResBase(res_name=args.net).cuda()
@@ -192,13 +193,16 @@ def train_target(args):
 
     max_iter = args.max_epoch * len(dset_loaders["target"])
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * len(dset_loaders["target"]))
-    interval_iter = len(dset_loaders["target"]) // 10
+    interval_iter = len(dset_loaders["target"]) // args.evals_per_epoch
     pseudo_label_iter = len(dset_loaders['target'])
     # interval_iter = 10
     iter_num = 0
     epoch_num = 0
     acc_s_best = 0
     eval_num = 0
+
+    # print(len(dset_loaders['target']))
+    # exit()
 
     validation_accuracy = []
 
@@ -401,10 +405,11 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes', 'xview', 'dota', 'clrs', 'nwpu'])
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="alexnet, vgg16, resnet50, res101")
     parser.add_argument('--seed', type=int, default=2020, help="random seed")
+    parser.add_argument('--evals-per-epoch', default=10, type=int)
 
     parser.add_argument('--gent', type=bool, default=True)
     parser.add_argument('--ent', type=bool, default=True)
@@ -482,6 +487,18 @@ if __name__ == "__main__":
         args.class_num = 10
     if args.dset == 'rareplanes':
         names = ['real', 'synth']
+        args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'xview':
+        names = ['XVIEW_ImageFolder']
+        args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'dota':
+        names = ['DOTA_ImageFolder']
+        args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'clrs':
+        names = ['CLRS']
+        args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'nwpu':
+        names = ['NWPU']
         args.class_num = config.MODEL.NUM_CLASSES
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
