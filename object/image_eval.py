@@ -8,6 +8,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from matplotlib import pyplot as plt
+from sklearn import metrics
 from sklearn.manifold import TSNE
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 from tqdm import tqdm
@@ -98,16 +99,21 @@ def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='
         print_all(args.out_file, 'Performance of pseudo labels')
         print_all(args.out_file, log_str)
 
+    # Get the distances
+    silhouette_score = metrics.silhouette_score(embeddings, all_label)
+
     # class_labels = [int(i) for i in test_loader.dataset.classes]
     log_str = classification_report(all_label, all_preds, target_names=loader.dataset.classes, digits=4)
     if(print_out):
         print_all(args.out_file, 'Performance on: %s' % name)
         print_all(args.out_file, log_str)
+        print_all(args.out_file, 'Silhouette Score: %f' % silhouette_score)
         print_all(args.out_file, '------------------------------\n\n')
 
     plt.close()
 
     return acc.mean()
+
 
 def print_all(outfile, string):
     print(string)
