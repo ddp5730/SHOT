@@ -18,8 +18,11 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from tqdm import tqdm
 
+import HRNet.models.cls_hrnet
+from HRNet.config.default import _C as cfg
 import loss
 import network
+from HRNet.config import update_config
 from data_list import ImageList_idx
 from object.center_loss import CenterLoss
 from object.image_source import print_top_evals, save_linear_net
@@ -148,6 +151,14 @@ def train_target(args):
         if config.MODEL.PRETRAINED and (not config.MODEL.RESUME):
             load_pretrained(config, netF, logger)
         netF.cuda()
+    elif args.net[0:3] == 'hrn':
+        args.cfg = args.cfg_hr
+        update_config(cfg, args)
+        netF = HRNet.models.cls_hrnet.get_cls_net(cfg)
+        netF.load_state_dict(torch.load(config.MODEL.PRETRAINED), strict=False)
+        netF = netF.cuda()
+        num_features = 2048
+        netF.num_features = num_features
 
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=num_features,
                                    bottleneck_dim=args.bottleneck).cuda()
@@ -430,6 +441,7 @@ if __name__ == "__main__":
     parser.add_argument('--issave', type=bool, default=True)
 
     parser.add_argument('--cfg', type=str, required=True, metavar="FILE", help='path to config file', )
+    parser.add_argument('--cfg-hr', type=str, metavar="FILE", help='path to config file', )
     parser.add_argument('--pretrained',
                         help='pretrained weight from checkpoint, could be imagenet22k pretrained weight')
     parser.add_argument('--netB', default='')

@@ -214,7 +214,7 @@ def cal_acc_oda(loader, netF, netB, netC):
 def train_source(args, config):
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
-    if args.dset == 'rareplanes-synth' or args.dset == 'rareplanes-real' or args.dset == 'dota' or args.dset == 'xview' or args.dset == 'clrs' or args.dset == 'nwpu':
+    if args.dset == 'rareplanes-synth' or args.dset == 'rareplanes-real' or args.dset == 'dota' or args.dset == 'xview' or args.dset == 'clrs' or args.dset == 'nwpu' or args.dset == 'cub-200':
         config.defrost()
         config.DATA.IDX_DATASET = False
         config.freeze()
@@ -259,6 +259,7 @@ def train_source(args, config):
         netF.load_state_dict(torch.load(config.MODEL.PRETRAINED), strict=False)
         netF = netF.cuda()
         num_features = 2048
+        netF.num_features = num_features
 
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=num_features,
                                    bottleneck_dim=args.bottleneck).cuda()
@@ -485,7 +486,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--worker', type=int, default=4, help="number of workers")
     parser.add_argument('--dset', type=str, default='office-home',
-                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'rareplanes-real', 'dota', 'xview', 'clrs', 'nwpu'])
+                        choices=['VISDA-C', 'office', 'office-home', 'office-caltech', 'rareplanes-synth', 'rareplanes-real', 'dota', 'xview', 'clrs', 'nwpu', 'cub-200'])
     parser.add_argument('--t-dset', type=str, default='rareplanes-real')
     parser.add_argument('--t-data-path', type=str, default='/home/poppfd/data/RarePlanesCrop/chipped/real')
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
@@ -567,6 +568,9 @@ if __name__ == "__main__":
     if args.dset == 'clrs' or args.dset == 'nwpu':
         names = ['train', 'test']
         args.class_num = config.MODEL.NUM_CLASSES
+    if args.dset == 'cub-200':
+        names = ['train', 'val']
+        args.class_num = config.MODEL.NUM_CLASSES
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -576,7 +580,7 @@ if __name__ == "__main__":
     random.seed(SEED)
     # torch.backends.cudnn.deterministic = True
 
-    if args.dset != 'rareplanes-synth' and args.dset != 'rareplanes-real' and args.dset != 'dota' and args.dset != 'xview' and args.dset != 'clrs' and args.dset != 'nwpu':
+    if args.dset != 'rareplanes-synth' and args.dset != 'rareplanes-real' and args.dset != 'dota' and args.dset != 'xview' and args.dset != 'clrs' and args.dset != 'nwpu' and args.dset != 'cub-200':
         if args.dset_root is None:
             folder = './data/'
             args.s_dset_path = folder + args.dset + '/' + names[args.s] + '_list.txt'
