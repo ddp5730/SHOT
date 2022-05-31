@@ -198,6 +198,20 @@ object/image_target.py \
 --name=swin-dota-to-xview-1
 ```
 
+**VERY IMPORTANT: Due to a bug when generating pseudo-labels,
+the `--batch-size`
+argument must perfectly divide the target dataset**
+
+i.e. dataset_size % batch_size == 0
+
+### Tensorboard
+Important training metrics for this project are logged using
+[Tensorboard](https://www.tensorflow.org/tensorboard/get_started).
+When training these metrics can be seen by:
+
+1. `$ tensorboard --logdir='logs/<name>`
+2. Open a web-browser and navigate to `localhost:6006`
+
 ### Contact
 
 - [ddp5730@rit.edu](mailto:ddp5730@rit.edu)
