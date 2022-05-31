@@ -13,7 +13,6 @@ from sklearn.manifold import TSNE
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 from tqdm import tqdm
 
-import loss
 import network
 import image_target
 from HRNet.config import update_config
@@ -27,6 +26,24 @@ from swin.utils import load_pretrained
 
 
 def cal_acc(loader, netF, netB, netC, name, eval_psuedo_labels=False, out_path='', print_out=False):
+    """
+    Evaluation method used to evaluate model performance.  Can also evalute the performance of how the model
+    would perform with SHOT-style pseudo labels instead of actual labels.
+
+    Args:
+        loader: Dataloader
+        netF: Backbone network
+        netB: Bottleneck network
+        netC: Classification network
+        name: Savename for eval
+        eval_psuedo_labels: Flag.  If True then the pseudolabels are found and performance on those labels is used.
+                            Could be useful for determining how this model would perform during DA training.
+        out_path: Save path
+        print_out: Flag on whether to print full classification report to the output
+
+    Returns: Model accuracy
+
+    """
     start_test = True
 
     num_features = netF.num_features

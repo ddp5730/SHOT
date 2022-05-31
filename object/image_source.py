@@ -1,3 +1,9 @@
+# image_source.py
+# This file is used to train/finetune a backbone model on the target dataset in preparation
+# for use with the SHOT domain adaptation method.
+#
+# This file will save the `TOP_N` models as evaluated by accuracy on the target dataset.
+
 import argparse
 import copy
 import os
@@ -10,7 +16,6 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix
 from timm.scheduler import CosineLRScheduler
 from torch.utils.data import DataLoader
@@ -82,6 +87,15 @@ def image_test(resize_size=256, crop_size=224, alexnet=False):
 
 
 def data_load(args):
+    """
+    (Obsolete) Load the data as used by the initial SHOT code.
+    Updates made by ddp5730 use SWIN dataloader code
+    Args:
+        args: Command line arguments
+
+    Returns: Relevant dataloaders in a dictionary object
+
+    """
     ## prepare data
     dsets = {}
     dset_loaders = {}
@@ -141,6 +155,19 @@ def data_load(args):
 
 
 def cal_acc(loader, netF, netB, netC, flag=False):
+    """
+    (Obsolete)
+    Old method for calculating model performance by original SHOT code
+    Args:
+        loader: Test dataloader
+        netF: Backbone network
+        netB: Bottleneck network
+        netC: Classification network
+        flag: Not sure...
+
+    Returns: Model accuracy
+
+    """
     start_test = True
     with torch.no_grad():
         iter_test = iter(loader)
@@ -174,44 +201,17 @@ def cal_acc(loader, netF, netB, netC, flag=False):
         return accuracy * 100, mean_ent
 
 
-def cal_acc_oda(loader, netF, netB, netC):
-    start_test = True
-    with torch.no_grad():
-        iter_test = iter(loader)
-        for i in range(len(loader)):
-            data = iter_test.next()
-            inputs = data[0]
-            labels = data[1]
-            inputs = inputs.cuda()
-            outputs = netC(netB(netF(inputs)))
-            if start_test:
-                all_output = outputs.float().cpu()
-                all_label = labels.float()
-                start_test = False
-            else:
-                all_output = torch.cat((all_output, outputs.float().cpu()), 0)
-                all_label = torch.cat((all_label, labels.float()), 0)
-
-    all_output = nn.Softmax(dim=1)(all_output)
-    _, predict = torch.max(all_output, 1)
-    ent = torch.sum(-all_output * torch.log(all_output + args.epsilon), dim=1) / np.log(args.class_num)
-    ent = ent.float().cpu()
-    initc = np.array([[0], [1]])
-    kmeans = KMeans(n_clusters=2, random_state=0, init=initc, n_init=1).fit(ent.reshape(-1, 1))
-    threshold = (kmeans.cluster_centers_).mean()
-
-    predict[ent > threshold] = args.class_num
-    matrix = confusion_matrix(all_label, torch.squeeze(predict).float())
-    matrix = matrix[np.unique(all_label).astype(int), :]
-
-    acc = matrix.diagonal() / matrix.sum(axis=1) * 100
-    unknown_acc = acc[-1:].item()
-
-    return np.mean(acc[:-1]), np.mean(acc), unknown_acc
-    # return np.mean(acc), np.mean(acc[:-1])
-
-
 def train_source(args, config):
+    """
+    Large method to set up model and fine tune on target dataset
+    Args:
+        args: Command line arguments
+        config: Swin config object.  Config object is used even for HRNet backbone, and Swin specific fields are
+                ignored.
+
+    Returns: Returns the backbone, bottleneck, and classification networks
+
+    """
     logger = create_logger(output_dir=args.output_dir_src, dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
 
     if args.dset == 'rareplanes-synth' or args.dset == 'rareplanes-real' or args.dset == 'dota' or args.dset == 'xview' or args.dset == 'clrs' or args.dset == 'nwpu' or args.dset == 'cub-200':
@@ -405,6 +405,21 @@ def train_source(args, config):
 
 
 def save_linear_net(state_dict, net_name, epoch, eval, accuracies, output_path, top_n=10):
+    """
+    Save a linear network.  Specifically used for netB and netC in the code.  Removes any output
+    that is not in the `TOP_N` results.
+    Args:
+        state_dict: PyTorch model state_dict
+        net_name: Name of the network.  Used for save_name and to remove obsolete save states
+        epoch: The epoch number used for save name
+        eval: The evaluation number used for save name
+        accuracies: List of training accuracy history.  Used to determine if model should be saved as top performer
+        output_path: Save directory
+        top_n: Number of networks to save
+
+    Returns: None
+
+    """
     save_path = os.path.join(os.path.join(output_path, '%s_epoch_%d_eval_%d.pt' % (net_name, epoch, eval)))
     torch.save(state_dict, save_path)
 
@@ -419,55 +434,25 @@ def save_linear_net(state_dict, net_name, epoch, eval, accuracies, output_path, 
 
 
 def print_top_evals(validation_accuracy, n=10, logger=None):
-    top_10_epochs = np.flip(np.argsort(validation_accuracy))[:n]
-    for i in range(top_10_epochs.size):
-        epoch_num = top_10_epochs[i]
+    """
+    Print the top evaluation results.  Useful for determining performance of saved models
+    Args:
+        validation_accuracy: List of validation accuracies over training history
+        n: The number of top results to print
+        logger: Logger object
+
+    Returns: None
+
+    """
+    top_n_epochs = np.flip(np.argsort(validation_accuracy))[:n]
+    for i in range(top_n_epochs.size):
+        epoch_num = top_n_epochs[i]
         epoch_accuracy = validation_accuracy[epoch_num]
         log_str = 'Rank %d: Eval: %d, Acc1: %.3f%%' % (i + 1, epoch_num, epoch_accuracy)
         if logger is not None:
             logger.info(log_str)
         else:
             print(log_str)
-
-
-def test_target(args):
-    dset_loaders = data_load(args)
-    ## set base network
-    if args.net[0:3] == 'res':
-        netF = network.ResBase(res_name=args.net).cuda()
-    elif args.net[0:3] == 'vgg':
-        netF = network.VGGBase(vgg_name=args.net).cuda()
-
-    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features,
-                                   bottleneck_dim=args.bottleneck).cuda()
-    netC = network.feat_classifier(type=args.layer, class_num=args.class_num, bottleneck_dim=args.bottleneck).cuda()
-
-    args.modelpath = args.output_dir_src + '/source_F.pt'
-    netF.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_B.pt'
-    netB.load_state_dict(torch.load(args.modelpath))
-    args.modelpath = args.output_dir_src + '/source_C.pt'
-    netC.load_state_dict(torch.load(args.modelpath))
-    netF.eval()
-    netB.eval()
-    netC.eval()
-
-    if args.da == 'oda':
-        acc_os1, acc_os2, acc_unknown = cal_acc_oda(dset_loaders['test'], netF, netB, netC)
-        log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}% / {:.2f}% / {:.2f}%'.format(args.trte, args.name,
-                                                                                            acc_os2, acc_os1,
-                                                                                            acc_unknown)
-    else:
-        if args.dset == 'VISDA-C':
-            acc, acc_list = cal_acc(dset_loaders['test'], netF, netB, netC, True)
-            log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc) + '\n' + acc_list
-        else:
-            acc, _ = cal_acc(dset_loaders['test'], netF, netB, netC, False)
-            log_str = '\nTraining: {}, Task: {}, Accuracy = {:.2f}%'.format(args.trte, args.name, acc)
-
-    args.out_file.write(log_str)
-    args.out_file.flush()
-    print(log_str)
 
 
 def print_args(args):
