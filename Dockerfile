@@ -1,6 +1,20 @@
 # Build Docker image specific to SHOT
 
-FROM ml-base
+FROM nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04
+
+RUN apt update && apt install -y build-essential python3 python3-pip git
+RUN apt clean
+
+RUN pip3 install matplotlib
+RUN pip3 install numpy
+RUN pip3 install cupy
+RUN pip3 install scipy
+RUN pip3 install tqdm
+RUN pip3 install torch==1.10.2+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+RUN pip3 install torchvision==0.11.3+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+RUN pip3 install git+https://github.com/nottombrown/imagenet_stubs
+
+RUN useradd --create-home --shell /bin/bash developer
 
 WORKDIR /opt
 RUN git clone https://github.com/NVIDIA/apex.git

@@ -1,141 +1,51 @@
-# Official implementation for **SHOT**
+# Research Code for Swapping **SHOT** Backbones
 
-## [**[ICML-2020] Do We Really Need to Access the Source Data? Source Hypothesis Transfer for Unsupervised Domain Adaptation**](http://proceedings.mlr.press/v119/liang20a.html)
+**For the original paper and source code please see:** [SHOT](https://github.com/tim-learn/SHOT)
 
+This repository contains the research code used to test the SHOT domain
+adaptation technique with using different backbone networks.
+Specifically the backbone was swapped from a ResNet backbone to a 
+[SWIN](https://github.com/microsoft/Swin-Transformer) and an
+[HRNet-V2](https://github.com/HRNet/HRNet-Image-Classification) model.
 
+## Clone Repository
 
-### Attention: ***A stronger extension (https://arxiv.org/pdf/2012.07297.pdf) of SHOT will be released in a new repository (https://github.com/tim-learn/SHOT-plus).*** 
-
-### Results:
-
-#### **Note that we update the code and further consider the standard learning rate scheduler like DANN and report new results in the final camera ready version.** Please refer [results.md](./results.md) for the detailed results on various datasets.
-
-*We have updated the results for **Digits**. Now the results of SHOT-IM for **Digits** are stable and promising. (Thanks to wengzejia1 for pointing the bugs in **uda_digit.py**).*
-
-
-### Framework:  
-
-<img src="figs/shot.jpg" width="600"/>
-
-### Prerequisites:
-- python == 3.6.8
-- pytorch ==1.1.0
-- torchvision == 0.3.0
-- numpy, scipy, sklearn, PIL, argparse, tqdm
-
-### Dataset:
-
-- Please manually download the datasets [Office](https://drive.google.com/file/d/0B4IapRTv9pJ1WGZVd1VDMmhwdlE/view), [Office-Home](https://drive.google.com/file/d/0B81rNlvomiwed0V1YUxQdC1uOTg/view), [VisDA-C](https://github.com/VisionLearningGroup/taskcv-2017-public/tree/master/classification), [Office-Caltech](http://www.vision.caltech.edu/Image_Datasets/Caltech256/256_ObjectCategories.tar) from the official websites, and modify the path of images in each '.txt' under the folder './object/data/'.
-
-- Concerning the **Digits** dsatasets, the code will automatically download three digit datasets (i.e., MNIST, USPS, and SVHN) in './digit/data/'.
-
-
-### Training:
-1. ##### Unsupervised Closed-set Domain Adaptation (UDA) on the Digits dataset
-	- MNIST -> USPS (**m2u**)   SHOT (**cls_par = 0.1**) and SHOT-IM (**cls_par = 0.0**)
-	```python
-	 cd digit/
-	 python uda_digit.py --dset m2u --gpu_id 0 --output ckps_digits --cls_par 0.0
-	 python uda_digit.py --dset m2u --gpu_id 0 --output ckps_digits --cls_par 0.1
+1. Clone repository
 	```
-	
-2. ##### Unsupervised Closed-set Domain Adaptation (UDA) on the Office/ Office-Home dataset
-	- Train model on the source domain **A** (**s = 0**)
-    ```python
-    cd object/
-    python image_source.py --trte val --da uda --output ckps/source/ --gpu_id 0 --dset office --max_epoch 100 --s 0
+ 	git clone git@github.com:ddp5730/SHOT.git
+ 	```
+
+## Requirements
+See Dockerfile for full list of install dependencies and packages
+
+- CUDA == 11.3.1
+- torch == 1.10.2+cu113
+- torchvision=0.11.3+cu113
+- [apex](https://github.com/NVIDIA/apex)
+
+### Build Docker Container (Optional)
+
+You may use the provided Dockerfile to build a container with all
+of the necessary requirements required to run the provided code.
+However, you must have some version of CUDA, Docker and the
+NVIDIA container toolkit installed (see [link](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)).
+
+1. Update .dockerignore with any added directories as necessary
+2. Build the Docker container
     ```
-	
-	- Adaptation to other target domains **D and W**, respectively
-    ```python
-    python image_target.py --cls_par 0.3 --da uda --output_src ckps/source/ --output ckps/target/ --gpu_id 0 --dset office --s 0  
+   $ docker build -t <desired-tag> -f Dockerfile .
     ```
-   
-3. ##### Unsupervised Closed-set Domain Adaptation (UDA) on the VisDA-C dataset
-	- Synthetic-to-real 
-    ```python
-    cd object/
-	 python image_source.py --trte val --output ckps/source/ --da uda --gpu_id 0 --dset VISDA-C --net resnet101 --lr 1e-3 --max_epoch 10 --s 0
-	 python image_target.py --cls_par 0.3 --da uda --dset VISDA-C --gpu_id 0 --s 0 --output_src ckps/source/ --output ckps/target/ --net resnet101 --lr 1e-3
-	 ```
-	
-4. ##### Unsupervised Partial-set Domain Adaptation (PDA) on the Office-Home dataset
-	- Train model on the source domain **A** (**s = 0**)
-	```python
-	 cd object/
-	 python image_source.py --trte val --da pda --output ckps/source/ --gpu_id 0 --dset office-home --max_epoch 50 --s 0
-	```
+3. Run Docker Container.  `<tag>` must be the same tag used in step 4.
+   ```
+   docker run -it --gpus all --shm-size=25G -e HOME=$HOME -e USER=$USER -v $HOME:$HOME -w $HOME --user developer <tag>
+   ```
+4. Navigate to code (Home directories will be linked) and run
 
-	- Adaptation to other target domains **C and P and R**, respectively
-	```python
-	 python image_target.py --cls_par 0.3 --threshold 10 --da pda --dset office-home --gpu_id 0 --s 0 --output_src ckps/source/ --output ckps/target/
-	```
-   
-5. ##### Unsupervised Open-set Domain Adaptation (ODA) on the Office-Home dataset
-	- Train model on the source domain **A** (**s = 0**)
-	```python
-	 cd object/
-	 python image_source.py --trte val --da oda --output ckps/source/ --gpu_id 0 --dset office-home --max_epoch 50 --s 0
-	```
-	
-	- Adaptation to other target domains **C and P and R**, respectively
-	```python
-	 python image_target_oda.py --cls_par 0.3 --da oda --dset office-home --gpu_id 0 --s 0 --output_src ckps/source/ --output ckps/target/
-	```
-	
-6. ##### Unsupervised Multi-source Domain Adaptation (MSDA) on the Office-Caltech dataset
-	- Train model on the source domains **A** (**s = 0**), **C** (**s = 1**), **D** (**s = 2**), respectively
-	```python
-	 cd object/
-	 python image_source.py --trte val --da uda --output ckps/source/ --gpu_id 0 --dset office-caltech --max_epoch 100 --s 0
-	 python image_source.py --trte val --da uda --output ckps/source/ --gpu_id 0 --dset office-caltech --max_epoch 100 --s 1
-	 python image_source.py --trte val --da uda --output ckps/source/ --gpu_id 0 --dset office-caltech --max_epoch 100 --s 2
-	```
-	
-	- Adaptation to the target domain **W** (**t = 3**)
-	```python
-	 python image_target.py --cls_par 0.3 --da uda --output_src ckps/source/ --output ckps/target/ --gpu_id 0 --dset office --s 0
-	 python image_target.py --cls_par 0.3 --da uda --output_src ckps/source/ --output ckps/target/ --gpu_id 0 --dset office --s 1
-	 python image_target.py --cls_par 0.3 --da uda --output_src ckps/source/ --output ckps/target/ --gpu_id 0 --dset office --s 0
-	 python image_multisource.py --cls_par 0.0 --da uda --dset office-caltech --gpu_id 0 --t 3 --output_src ckps/source/ --output ckps/target/
-	```
-	
-7. ##### Unsupervised Multi-target Domain Adaptation (MTDA) on the Office-Caltech dataset
-	- Train model on the source domain **A** (**s = 0**)
-	```python
-	 cd object/
-	 python image_source.py --trte val --da uda --output ckps/source/ --gpu_id 0 --dset office-caltech --max_epoch 100 --s 0
-	```
-	
-	- Adaptation to multiple target domains **C and P and R** at the same time
-	```python
-	 python image_multitarget.py --cls_par 0.3 --da uda --dset office-caltech --gpu_id 0 --s 0 --output_src ckps/source/ --output ckps/target/
-	```
-	
-8. ##### Unsupervised Partial Domain Adaptation (PDA) on the ImageNet-Caltech dataset without source training by ourselves (using the downloaded Pytorch ResNet50 model directly)
-	- ImageNet -> Caltech (84 classes) [following the protocol in [PADA](https://github.com/thuml/PADA/tree/master/pytorch/data/imagenet-caltech)]
-	```python
-	 cd object/
-	 python image_pretrained.py --gpu_id 0 --output ckps/target/ --cls_par 0.3
-	```
+## Download Datasets
 
-**Please refer *run.sh*** for all the settings for different methods and scenarios.
-
-### Citation
-
-If you find this code useful for your research, please cite our paper
-
-> @inproceedings{liang2020shot,  
->  &nbsp; &nbsp;  title={Do We Really Need to Access the Source Data? Source Hypothesis Transfer for Unsupervised Domain Adaptation},  
->  &nbsp; &nbsp;  author={Liang, Jian and Hu, Dapeng and Feng, Jiashi},  
->  &nbsp; &nbsp;  booktitle={International Conference on Machine Learning (ICML)},  
->  &nbsp; &nbsp;  pages={6028--6039},  
->  &nbsp; &nbsp;  month = {July 13--18},  
->  &nbsp; &nbsp;  year={2020}  
-> }
+## Download Pretrained models
+- HRNET_W whatever...
 
 ### Contact
 
-- [liangjian92@gmail.com](mailto:liangjian92@gmail.com)
-- [dapeng.hu@u.nus.edu](mailto:dapeng.hu@u.nus.edu)
-- [elefjia@nus.edu.sg](mailto:elefjia@nus.edu.sg)
+- [ddp5730@rit.edu](mailto:ddp5730@rit.edu)
