@@ -1,0 +1,23 @@
+DATA:
+  DATASET: xview
+  IMG_SIZE: 384
+MODEL:
+  TYPE: swin
+  NAME: swin_base_patch4_window12_384_dota_to_xview_adaptation
+  DROP_PATH_RATE: 0.2
+  SOURCE_NUM_CLASSES: 5
+  NUM_CLASSES: 5
+  SWIN:
+    EMBED_DIM: 128
+    DEPTHS: [ 2, 2, 18, 2 ]
+    NUM_HEADS: [ 4, 8, 16, 32 ]
+    WINDOW_SIZE: 12
+TRAIN:
+  EPOCHS: 20
+  WARMUP_EPOCHS: 2
+  WEIGHT_DECAY: 1e-8
+  BASE_LR: 2e-05
+  WARMUP_LR: 2e-08
+  MIN_LR: 2e-07
+TEST:
+  CROP: False

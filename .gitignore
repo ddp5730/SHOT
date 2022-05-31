@@ -1,0 +1,10 @@
+scripts/
+output/*/
+.idea/
+logs/*/
+configs/
+data/
+
+transfg/
+
+__pycache__/

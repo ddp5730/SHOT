@@ -1,41 +1,44 @@
 import argparse
-import os, sys
+import os
 import os.path as osp
-import torchvision
-from torchvision import transforms
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import network, loss
-from torch.utils.data import DataLoader
-from data_list import ImageList, ImageList_idx
-import random, pdb, math, copy
-from tqdm import tqdm
 from scipy.spatial.distance import cdist
-from sklearn.metrics import confusion_matrix
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+import loss
+import network
+from data_list import ImageList_idx
+
 
 def op_copy(optimizer):
     for param_group in optimizer.param_groups:
         param_group['lr0'] = param_group['lr']
     return optimizer
 
+
 def lr_scheduler(optimizer, iter_num, max_iter, gamma=10, power=0.75):
     decay = (1 + gamma * iter_num / max_iter) ** (-power)
     for param_group in optimizer.param_groups:
         param_group['lr'] = param_group['lr0'] * decay
-        param_group['weight_decay'] = 1e-3 
+        param_group['weight_decay'] = 1e-3
         param_group['momentum'] = 0.9
         param_group['nesterov'] = True
     return optimizer
 
+
 def image_train(resize_size=256, crop_size=224, alexnet=False):
-  if not alexnet:
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                   std=[0.229, 0.224, 0.225])
-  else:
-    normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
-  return  transforms.Compose([
+    if not alexnet:
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+    else:
+        normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
+    return transforms.Compose([
         transforms.Resize((resize_size, resize_size)),
         transforms.RandomCrop(crop_size),
         transforms.RandomHorizontalFlip(),
@@ -43,20 +46,22 @@ def image_train(resize_size=256, crop_size=224, alexnet=False):
         normalize
     ])
 
+
 def image_test(resize_size=256, crop_size=224, alexnet=False):
-  if not alexnet:
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                   std=[0.229, 0.224, 0.225])
-  else:
-    normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
-  return  transforms.Compose([
+    if not alexnet:
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+    else:
+        normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
+    return transforms.Compose([
         transforms.Resize((resize_size, resize_size)),
         transforms.CenterCrop(crop_size),
         transforms.ToTensor(),
         normalize
     ])
 
-def data_load(args): 
+
+def data_load(args):
     dsets = {}
     dset_loaders = {}
     train_bs = args.batch_size
@@ -64,11 +69,14 @@ def data_load(args):
     txt_test = open(args.test_dset_path).readlines()
 
     dsets["target"] = ImageList_idx(txt_tar, transform=image_train())
-    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers=args.worker, drop_last=False)
+    dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers=args.worker,
+                                        drop_last=False)
     dsets["test"] = ImageList_idx(txt_test, transform=image_test())
-    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs*3, shuffle=False, num_workers=args.worker, drop_last=False)
+    dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs * 3, shuffle=False, num_workers=args.worker,
+                                      drop_last=False)
 
     return dset_loaders
+
 
 def cal_acc(loader, net, flag=False):
     start_test = True
@@ -91,20 +99,21 @@ def cal_acc(loader, net, flag=False):
     all_output = nn.Softmax(dim=1)(all_output)
     ent = torch.sum(-all_output * torch.log(all_output + args.epsilon), dim=1) / np.log(all_output.size(1))
     accuracy = torch.sum(torch.squeeze(predict).float() == all_label).item() / float(all_label.size()[0])
-    mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).cpu().data.item() 
-    
+    mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).cpu().data.item()
+
     return accuracy, mean_ent
 
+
 def train_target(args):
-    dset_loaders = data_load(args)  
+    dset_loaders = data_load(args)
     netF = network.Res50().cuda()
 
-    param_group = []  
+    param_group = []
     for k, v in netF.named_parameters():
         if k.__contains__("fc"):
             v.requires_grad = False
         else:
-            param_group += [{'params': v, 'lr': args.lr*args.lr_decay1}]
+            param_group += [{'params': v, 'lr': args.lr * args.lr_decay1}]
 
     optimizer = optim.SGD(param_group)
     optimizer = op_copy(optimizer)
@@ -159,22 +168,24 @@ def train_target(args):
         if iter_num % interval_iter == 0 or iter_num == max_iter:
             netF.eval()
             acc, ment = cal_acc(dset_loaders['test'], netF)
-            log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.dset, iter_num, max_iter, acc*100)
+            log_str = 'Task: {}, Iter:{}/{}; Accuracy = {:.2f}%'.format(args.dset, iter_num, max_iter, acc * 100)
             args.out_file.write(log_str + '\n')
             args.out_file.flush()
-            print(log_str+'\n')
+            print(log_str + '\n')
             netF.train()
-    
+
     if args.issave:
         torch.save(netF.state_dict(), osp.join(args.output_dir, "target" + args.savename + ".pt"))
 
     return netF
+
 
 def print_args(args):
     s = "==========================================\n"
     for arg, content in args.__dict__.items():
         s += "{}:{}\n".format(arg, content)
     return s
+
 
 def obtain_label(loader, net, args):
     start_test = True
@@ -210,9 +221,9 @@ def obtain_label(loader, net, args):
     K = all_output.size(1)
     aff = all_output.float().cpu().numpy()
     initc = aff.transpose().dot(all_fea)
-    initc = initc / (1e-8 + aff.sum(axis=0)[:,None])
+    initc = initc / (1e-8 + aff.sum(axis=0)[:, None])
     cls_count = np.eye(K)[predict].sum(axis=0)
-    labelset = np.where(cls_count>args.threshold)
+    labelset = np.where(cls_count > args.threshold)
     labelset = labelset[0]
     # print(labelset)
 
@@ -223,19 +234,19 @@ def obtain_label(loader, net, args):
     for round in range(1):
         aff = np.eye(K)[pred_label]
         initc = aff.transpose().dot(all_fea)
-        initc = initc / (1e-8 + aff.sum(axis=0)[:,None])
+        initc = initc / (1e-8 + aff.sum(axis=0)[:, None])
         dd = cdist(all_fea, initc[labelset], args.distance)
         pred_label = dd.argmin(axis=1)
         pred_label = labelset[pred_label]
 
     acc = np.sum(pred_label == all_label.float().numpy()) / len(all_fea)
-    log_str = 'Accuracy = {:.2f}% -> {:.2f}%'.format(accuracy*100, acc*100)
+    log_str = 'Accuracy = {:.2f}% -> {:.2f}%'.format(accuracy * 100, acc * 100)
 
     args.out_file.write(log_str + '\n')
     args.out_file.flush()
-    print(log_str+'\n')
+    print(log_str + '\n')
 
-    return pred_label.astype('int') #, labelset
+    return pred_label.astype('int')  # , labelset
 
 
 if __name__ == "__main__":
@@ -250,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--net', type=str, default='resnet50', help="vgg16, resnet50, resnet101")
     parser.add_argument('--seed', type=int, default=2019, help="random seed")
-    parser.add_argument('--epsilon', type=float, default=1e-5)  
+    parser.add_argument('--epsilon', type=float, default=1e-5)
     parser.add_argument('--gent', type=bool, default=False)
     parser.add_argument('--ent', type=bool, default=True)
     parser.add_argument('--threshold', type=int, default=30)
@@ -262,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument('--issave', type=bool, default=True)
     parser.add_argument('--lr_decay1', type=float, default=0.1)
 
-    args = parser.parse_args()        
+    args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     SEED = args.seed
@@ -290,6 +301,6 @@ if __name__ == "__main__":
     if args.da == 'pda':
         args.savename = 'par_' + str(args.cls_par) + '_thr' + str(args.threshold)
     args.out_file = open(osp.join(args.output_dir, 'log_' + args.savename + '.txt'), 'w')
-    args.out_file.write(print_args(args)+'\n')
+    args.out_file.write(print_args(args) + '\n')
     args.out_file.flush()
     train_target(args)
