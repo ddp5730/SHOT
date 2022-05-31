@@ -2,7 +2,7 @@
 # Dan Popp
 # 10/27/21
 #
-# This script will partition the rareplanes testing data into a separate validation dataset used
+# This script will partition the dota and xview testing data into a separate validation dataset used
 # to validate the model during training in a much quicker manner.
 import math
 import os
