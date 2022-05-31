@@ -86,6 +86,7 @@ To recreate the results download the following pretrained Swin and
 HRNet models.
 
 [HRNet-W48-C](https://github.com/HRNet/HRNet-Image-Classification)
+
 [swin_base_patch4_window12_384_22k](https://github.com/microsoft/Swin-Transformer)
 
 ## Run the Code
